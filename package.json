@@ -1,0 +1,16 @@
+{
+  "name": "dailycheck-cloud189",
+  "version": "1.0.0",
+  "private": true,
+  "description": "天翼云盘个人签到",
+  "main": "src/checkin.js",
+  "scripts": {
+    "start": "node src/checkin.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "cloud189-sdk": "1.0.8"
+  }
+}

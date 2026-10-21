@@ -1,0 +1,64 @@
+name: 天翼云盘每日签到
+
+on:
+  schedule:
+    - cron: "35 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud189-daily-checkin
+  cancel-in-progress: false
+
+jobs:
+  checkin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Restore sign-in session
+        uses: actions/cache/restore@v4
+        with:
+          path: .token
+          key: cloud189-token-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            cloud189-token-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Sign in
+        run: npm start
+        env:
+          TY_ACCOUNTS: ${{ secrets.TY_ACCOUNTS }}
+          SENDKEY: ${{ secrets.SENDKEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          WECOM_BOT_KEY: ${{ secrets.WECOM_BOT_KEY }}
+          WECOM_BOT_TELPHONE: ${{ secrets.WECOM_BOT_TELPHONE }}
+          WX_PUSHER_APP_TOKEN: ${{ secrets.WX_PUSHER_APP_TOKEN }}
+          WX_PUSHER_UID: ${{ secrets.WX_PUSHER_UID }}
+          PUSH_PLUS_TOKEN: ${{ secrets.PUSH_PLUS_TOKEN }}
+          WPUSH_APIKEY: ${{ secrets.WPUSH_APIKEY }}
+          WPUSH_CHANNEL: ${{ vars.WPUSH_CHANNEL }}
+          WPUSH_TOPIC_CODE: ${{ vars.WPUSH_TOPIC_CODE }}
+          SHOWDOC_KEY: ${{ secrets.SHOWDOC_KEY }}
+          BARK_KEY: ${{ secrets.BARK_KEY }}
+          BARK_SERVER: ${{ vars.BARK_SERVER }}
+
+      - name: Save refreshed sign-in session
+        if: always() && hashFiles('.token/**') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .token
+          key: cloud189-token-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
