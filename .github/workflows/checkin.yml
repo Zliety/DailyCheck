@@ -15,7 +15,6 @@ concurrency:
 jobs:
   checkin:
     runs-on: ubuntu-latest
-    environment: user
     timeout-minutes: 10
     steps:
       - name: Checkout
