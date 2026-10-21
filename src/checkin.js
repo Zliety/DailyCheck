@@ -6,11 +6,11 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createHash } = require("node:crypto");
 const {
-  CloudClient,
   FileTokenStore,
   logger: sdkLogger,
 } = require("cloud189-sdk");
 const { sendNotifications } = require("./notifications");
+const { SignInClient, describeFailure } = require("./signin-client");
 
 sdkLogger.configure({ isDebugEnabled: false, consoleOutput: false });
 
@@ -58,6 +58,7 @@ async function main() {
     const userName = account.userName.trim();
     const accountId = createHash("sha256").update(userName).digest("hex");
     const tokenPath = path.join(tokenDirectory, `${accountId}.json`);
+    let phase = "登录";
 
     try {
       try {
@@ -66,12 +67,14 @@ async function main() {
         if (error.code !== "ENOENT") throw error;
       }
 
-      const client = new CloudClient({
+      const client = new SignInClient({
         username: userName,
         password: account.password,
         token: new FileTokenStore(tokenPath),
       });
 
+      await client.getSessionKey();
+      phase = "签到";
       const result = await client.userSign();
       if (!result || typeof result.isSign !== "boolean") {
         throw new Error("invalid sign-in response");
@@ -91,17 +94,8 @@ async function main() {
       }
     } catch (error) {
       failed = true;
-      outcomes.push(`第 ${index + 1} 个账号：签到失败。`);
-      const failure = error && typeof error === "object" ? error : {};
-      const details = [];
-      if (Number.isInteger(failure.response?.statusCode)) {
-        details.push(`HTTP ${failure.response.statusCode}`);
-      }
-      if (typeof failure.code === "string" && /^[A-Z0-9_]+$/.test(failure.code)) {
-        details.push(failure.code);
-      }
-      const suffix = details.length ? `（${details.join("，")}）` : "";
-      console.error(`第 ${index + 1} 个账号签到失败${suffix}。请检查账号、安全验证状态和网络后重试。`);
+      outcomes.push(`第 ${index + 1} 个账号：${phase}失败。`);
+      console.error(`第 ${index + 1} 个账号${phase}失败（${describeFailure(error, accounts)}）。`);
     }
   }
 
@@ -113,15 +107,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  const failure = error && typeof error === "object" ? error : {};
-  const details = [];
-  if (Number.isInteger(failure.response?.statusCode)) {
-    details.push(`HTTP ${failure.response.statusCode}`);
-  }
-  if (typeof failure.code === "string" && /^[A-Z0-9_]+$/.test(failure.code)) {
-    details.push(failure.code);
-  }
-  const suffix = details.length ? `（${details.join("，")}）` : "";
-  console.error(`天翼云盘签到失败${suffix}。请检查账号、安全验证状态和网络后重试。`);
+  console.error(`天翼云盘任务失败（${describeFailure(error)}）。`);
   process.exitCode = 1;
 });

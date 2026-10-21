@@ -1,0 +1,71 @@
+"use strict";
+
+const { CloudClient } = require("cloud189-sdk");
+
+// The SDK catches password login errors in getSession(), then throws a generic
+// error. Keep the cause while retaining its cached-token and refresh behavior.
+class SignInClient extends CloudClient {
+  constructor(options) {
+    super(options);
+    const loginByPassword = this.authClient.loginByPassword.bind(this.authClient);
+    this.authClient.loginByPassword = async (...args) => {
+      try {
+        return await loginByPassword(...args);
+      } catch (error) {
+        this.passwordLoginError = error;
+        throw error;
+      }
+    };
+  }
+
+  async getSession() {
+    this.passwordLoginError = undefined;
+    try {
+      return await super.getSession();
+    } catch (error) {
+      throw this.passwordLoginError || error;
+    }
+  }
+}
+
+function describeFailure(error, accounts = []) {
+  const failure = error && typeof error === "object" ? error : {};
+  const details = [];
+  if (Number.isInteger(failure.response?.statusCode)) {
+    details.push(`HTTP ${failure.response.statusCode}`);
+  }
+  if (typeof failure.code === "string" && /^[A-Z0-9_]{1,60}$/.test(failure.code)) {
+    details.push(failure.code);
+  }
+
+  // Only authentication API errors contain a server-provided reason. Other SDK
+  // errors may embed request URLs, headers or sessions, so never print them raw.
+  if (failure.name === "AuthApiError" || failure.constructor?.name === "AuthApiError") {
+    let reason = String(failure.message || "");
+    for (const account of accounts) {
+      for (const value of [account.userName, account.userName?.trim(), account.password]) {
+        if (value) {
+          for (const secret of [value, encodeURIComponent(value)]) {
+            reason = reason.split(secret).join("[已隐藏]");
+          }
+        }
+      }
+    }
+    reason = reason
+      .replace(/https?:\/\/[^\s<>"']+/gi, "[链接已隐藏]")
+      .replace(/(?:password|token|cookie|session\w*|authorization)\s*[:=]\s*[^\s,;]+/gi, "[凭据已隐藏]")
+      .replace(/[A-Z0-9_+/=-]{24,}/gi, "[内容已隐藏]")
+      .replace(/[\r\n\t\x00-\x1f\x7f]/g, " ")
+      .slice(0, 200);
+    details.push(`天翼认证接口：${reason || "拒绝登录"}`);
+  } else if (failure instanceof TypeError && /\bnull\b|\bundefined\b/.test(failure.message)) {
+    details.push("登录页面或接口返回格式不符合 SDK 预期，可能是页面变更或安全验证");
+  } else if (failure.message === "invalid sign-in response") {
+    details.push("签到接口返回格式异常");
+  } else if (!details.length) {
+    details.push("未获取到具体原因，请检查账号、安全验证状态和网络");
+  }
+  return details.join("，");
+}
+
+module.exports = { SignInClient, describeFailure };
