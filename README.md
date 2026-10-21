@@ -48,6 +48,10 @@ GitHub Actions 工作流默认每天北京时间 10:35（UTC 02:35）运行，�
 
 日志保留认证接口的错误原因并过滤已配置的账号和密码，不输出完整请求、响应或会话令牌。排查时只分享错误提示，不要分享 `TY_ACCOUNTS` 或 `.token` 文件。
 
+如果多个账号都出现 `ETIMEDOUT`，优先排查运行节点到天翼接口的网络。脚本使用 IPv4，并为 DNS、TCP、TLS 和响应设置超时；符合 SDK 重试条件的请求最多重试一次。失败日志会显示目标域名和可用的超时阶段。Actions 失败后还会运行 **Diagnose network after failure**，分别检查三个天翼域名的 IPv4 / IPv6 HTTPS 连通性，不使用账号凭据。主页可达不代表登录接口一定可用。
+
+GitHub 托管运行器的出口网络可能无法稳定访问天翼接口，强制 IPv4 也不能保证解决。如果仍然超时，可在能访问天翼云盘的常开电脑或服务器上运行：在仓库 **Settings → Actions → Runners → New self-hosted runner** 按提示安装并启动自己的运行器，再在 **Settings → Secrets and variables → Actions → Variables** 添加 `CHECKIN_RUNNER`，值填 `self-hosted`。该机器需要能运行 Node.js 20，并保持在线；不设置此变量时使用 `ubuntu-latest`。已有的仓库 Secrets 仍由工作流注入。
+
 ## 本地运行
 
 需要 Node.js 20 或更新版本。

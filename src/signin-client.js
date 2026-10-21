@@ -2,11 +2,22 @@
 
 const { CloudClient } = require("cloud189-sdk");
 
+const CLOUD_HOSTS = new Set(["cloud.189.cn", "open.e.189.cn", "api.cloud.189.cn"]);
+const NETWORK_OPTIONS = {
+  dnsLookupIpVersion: "ipv4",
+  timeout: { lookup: 10000, connect: 15000, secureConnect: 15000, response: 20000, request: 45000 },
+  retry: { limit: 1 },
+};
+
 // The SDK catches password login errors in getSession(), then throws a generic
 // error. Keep the cause while retaining its cached-token and refresh behavior.
 class SignInClient extends CloudClient {
   constructor(options) {
     super(options);
+    // Extend both clients so authentication and sign-in use the same settings.
+    // Existing SDK headers, signing hooks and retry method restrictions remain.
+    this.authClient.authRequest = this.authClient.authRequest.extend(NETWORK_OPTIONS);
+    this.request = this.request.extend(NETWORK_OPTIONS);
     const loginByPassword = this.authClient.loginByPassword.bind(this.authClient);
     this.authClient.loginByPassword = async (...args) => {
       try {
@@ -37,6 +48,17 @@ function describeFailure(error, accounts = []) {
   if (typeof failure.code === "string" && /^[A-Z0-9_]{1,60}$/.test(failure.code)) {
     details.push(failure.code);
   }
+  try {
+    const hostname = new URL(failure.options?.url || failure.request?.requestUrl).hostname;
+    if (CLOUD_HOSTS.has(hostname)) details.push(`目标 ${hostname}`);
+  } catch {
+    // Errors without a request URL have no endpoint to report.
+  }
+  const stages = {
+    lookup: "DNS 解析", connect: "TCP 连接", secureConnect: "TLS 握手",
+    response: "等待响应", request: "整个请求", socket: "套接字", send: "发送请求",
+  };
+  if (Object.hasOwn(stages, failure.event)) details.push(`${stages[failure.event]}超时`);
 
   // Only authentication API errors contain a server-provided reason. Other SDK
   // errors may embed request URLs, headers or sessions, so never print them raw.

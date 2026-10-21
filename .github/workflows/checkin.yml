@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   checkin:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CHECKIN_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -55,6 +55,10 @@ jobs:
           SHOWDOC_KEY: ${{ secrets.SHOWDOC_KEY }}
           BARK_KEY: ${{ secrets.BARK_KEY }}
           BARK_SERVER: ${{ vars.BARK_SERVER }}
+
+      - name: Diagnose network after failure
+        if: failure()
+        run: node scripts/check-network.js
 
       - name: Save refreshed sign-in session
         if: always() && hashFiles('.token/**') != ''
