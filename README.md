@@ -8,21 +8,22 @@
 
 GitHub Actions 工作流默认每天北京时间 10:35（UTC 02:35）运行，也可以在 Actions 页面手动触发。
 
-1. 在仓库的 **Settings → Secrets and variables → Actions** 添加 Repository secret `TY_ACCOUNTS`，值为 JSON 数组：
+1. 在仓库的 **Settings → Environments** 创建或打开名为 `user` 的 Environment。
+2. 在该 Environment 的 **Environment secrets** 中添加 `TY_ACCOUNTS`，值为 JSON 数组：
 
    ```json
    [{"userName":"账号 1","password":"密码 1"},{"userName":"账号 2","password":"密码 2"}]
    ```
 
-   单个账号也使用数组格式，只保留一个对象即可。请直接在 GitHub 的 Secret 表单中填写真实值，不要把真实账号密码写进文件或提交到仓库。
-2. 打开仓库的 **Actions** 页面，首次运行选择“天翼云盘每日签到”并点击 **Run workflow**。
-3. 后续查看该工作流运行日志。日志只显示签到结果，不显示账号密码或接口响应内容。
+   单个账号也使用数组格式，只保留一个对象即可。请直接在 GitHub 的 Environment Secret 表单中填写真实值，不要把真实账号密码写进文件或提交到仓库。Repository secrets 也可使用，但同名 Environment secret 会优先。
+3. 可在同一个 `user` Environment 中添加通知渠道所需的凭据。
+4. 打开仓库的 **Actions** 页面，手动运行“天翼云盘每日签到”一次；之后查看运行记录。
 
 ### 可选通知渠道
 
-不配置通知渠道时，签到照常运行。要启用通知，请在 **Settings → Secrets and variables → Actions** 按所选渠道添加以下 Repository secrets；可以同时配置多个渠道：
+不配置通知渠道时，签到照常运行。要启用通知，请在 `user` Environment 的 **Environment secrets** 中按所选渠道添加凭据，可以同时配置多个渠道。可选的 WPUSH、Bark 参数放在该 Environment 的 **Environment variables** 中：
 
-| 渠道 | Repository secrets | Repository variables（可选） |
+| 渠道 | Environment secrets | Environment variables（可选） |
 | --- | --- | --- |
 | Server 酱 | `SENDKEY` | — |
 | Telegram | `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID` | — |
