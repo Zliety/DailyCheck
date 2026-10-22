@@ -49,6 +49,9 @@ async function runTianyi(rawAccounts = process.env.TY_ACCOUNTS, {
   const outcomes = [];
   for (const [index, account] of accounts.entries()) {
     const userName = account.userName.trim();
+    const phone = /^1[3-9]\d{9}$/.test(userName)
+      ? `（${userName.slice(0, 3)}****${userName.slice(-4)}）` : "";
+    const accountLabel = `账号 ${index + 1}${phone}`;
     const accountId = createHash("sha256").update(userName).digest("hex");
     const tokenPath = path.join(tokenDirectory, `${accountId}.json`);
     let phase = "登录";
@@ -75,20 +78,20 @@ async function runTianyi(rawAccounts = process.env.TY_ACCOUNTS, {
 
       if (result.isSign) {
         const message = `第 ${index + 1} 个账号：今天已经签到过。`;
-        outcomes.push(`\n账号 ${index + 1}\n✅ 签到：今天已经签到过`);
+        outcomes.push(`\n${accountLabel}\n✅ 签到：今天已经签到过`);
         console.log(message);
       } else {
         const bonus = Number.isFinite(result.netdiskBonus)
           ? `，获得 ${result.netdiskBonus} MB 空间`
           : "";
         const message = `第 ${index + 1} 个账号：签到成功${bonus}。`;
-        outcomes.push(`\n账号 ${index + 1}\n✅ 签到：成功${bonus}`);
+        outcomes.push(`\n${accountLabel}\n✅ 签到：成功${bonus}`);
         console.log(message);
       }
     } catch (error) {
       failedAccounts++;
       const reason = describeFailure(error, accounts);
-      outcomes.push(`\n账号 ${index + 1}｜❌ 执行失败\n❌ ${phase}：失败（${reason}）`);
+      outcomes.push(`\n${accountLabel}｜❌ 执行失败\n❌ ${phase}：失败（${reason}）`);
       console.error(`第 ${index + 1} 个账号${phase}失败（${reason}）。`);
     }
   }

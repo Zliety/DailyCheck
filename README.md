@@ -61,6 +61,8 @@ GitHub Secrets 不会自动同步到本地，脚本不会自动读取 `.env` 文
 
 ## 天翼云盘
 
+推送中的账号标题会自动显示脱敏手机号，例如 `账号 1（138****0001）`，直接读取 `TY_ACCOUNTS` 中的 `userName`，无需新增配置；非手机号账号只显示序号。
+
 ### 账号配置
 
 使用 `cloud189-sdk` 执行个人签到。添加 Repository Secret **`TY_ACCOUNTS`**，值为账号 JSON 数组：

@@ -14,23 +14,23 @@ async function tokenDir(t) {
 }
 
 test("天翼推送按账号分组，准确汇总成功、已签到和失败，不泄露凭据", async (t) => {
-  const raw = JSON.stringify(["new-user", "signed-user", "failed-user"].map((userName) => ({ userName, password: "secret-password" })));
+  const raw = JSON.stringify(["13812340001", "13912340002", "18612340003"].map((userName) => ({ userName, password: "secret-password" })));
   const result = await runTianyi(raw, {
     tokenDirectory: await tokenDir(t),
     createClient: ({ username }) => ({
       async getSessionKey() {
-        if (username === "failed-user") throw Object.assign(new Error("secret-password failed-user"), { code: "ETIMEDOUT" });
+        if (username === "18612340003") throw Object.assign(new Error("secret-password failed-user"), { code: "ETIMEDOUT" });
       },
-      async userSign() { return { isSign: username === "signed-user", netdiskBonus: 65 }; },
+      async userSign() { return { isSign: username === "13912340002", netdiskBonus: 65 }; },
     }),
   });
   assert.equal(result.failed, true);
   assert.equal(result.outcomes[0], "账号：3 个｜异常：1 个");
-  assert.match(result.outcomes[1], /账号 1\n✅ 签到：成功，获得 65 MB 空间/);
-  assert.match(result.outcomes[2], /账号 2\n✅ 签到：今天已经签到过/);
+  assert.match(result.outcomes[1], /账号 1（138\*\*\*\*0001）\n✅ 签到：成功，获得 65 MB 空间/);
+  assert.match(result.outcomes[2], /账号 2（139\*\*\*\*0002）\n✅ 签到：今天已经签到过/);
   assert.ok(!result.outcomes[2].includes("65 MB"));
-  assert.match(result.outcomes[3], /账号 3｜❌ 执行失败\n❌ 登录：失败（ETIMEDOUT）/);
-  for (const secret of ["new-user", "signed-user", "failed-user", "secret-password"]) {
+  assert.match(result.outcomes[3], /账号 3（186\*\*\*\*0003）｜❌ 执行失败\n❌ 登录：失败（ETIMEDOUT）/);
+  for (const secret of ["13812340001", "13912340002", "18612340003", "secret-password"]) {
     assert.ok(!result.outcomes.join("\n").includes(secret));
   }
 });
