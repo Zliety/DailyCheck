@@ -334,7 +334,8 @@ class BilibiliClient {
     } catch {
       // Reporting failure must not discard task results or pretend stale data is current.
     }
-    return { failed, outcomes, accountInfo: formatAccountInfo(snapshot, refreshed) };
+    return { failed, outcomes, nickname: formatNickname(snapshot.uname) || formatNickname(user.uname),
+      accountInfo: formatAccountInfo(snapshot, refreshed) };
   }
 }
 
@@ -349,9 +350,13 @@ function formatAccountInfo(user, refreshed) {
   return `等级 ${level === undefined ? "未获取" : `Lv.${level}`}｜经验 ${experience}｜硬币 ${coins}${refreshed ? "" : "（任务前快照，刷新失败）"}`;
 }
 
-function formatAccount(index, lines, failed, fatal, accountInfo) {
+function formatNickname(value) {
+  return typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ").trim().slice(0, 64) : "";
+}
+
+function formatAccount(index, lines, failed, fatal, accountInfo, nickname) {
   const status = fatal ? "❌ 执行失败" : failed ? "⚠️ 有失败任务" : "";
-  const output = [`账号 ${index + 1}${status ? `｜${status}` : ""}`];
+  const output = [`账号 ${index + 1}${nickname ? `（${nickname}）` : ""}${status ? `｜${status}` : ""}`];
   if (accountInfo) output.push(accountInfo);
   const disabled = [];
   for (const line of lines) {
@@ -373,14 +378,16 @@ async function runBilibili(raw, { request = requestJson } = {}) {
     let failed = false;
     let fatal = false;
     let accountInfo;
+    let nickname;
     try {
       const result = await new BilibiliClient(configure(account), request).run();
       failed = result.failed;
       lines = result.outcomes;
       accountInfo = result.accountInfo;
+      nickname = result.nickname;
     } catch (error) { failed = true; fatal = true; lines = [`执行：失败（${describe(error)}）`]; }
     if (failed) failedAccounts++;
-    outcomes.push(`\n${formatAccount(index, lines, failed, fatal, accountInfo)}`);
+    outcomes.push(`\n${formatAccount(index, lines, failed, fatal, accountInfo, nickname)}`);
     if (accountInfo) console.log(`B站 第 ${index + 1} 个账号 ${accountInfo}`);
     for (const line of lines) console.log(`B站 第 ${index + 1} 个账号 ${line}`);
   }
