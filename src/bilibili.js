@@ -244,7 +244,7 @@ class BilibiliClient {
 }
 
 function formatAccount(index, lines, failed, fatal) {
-  const status = fatal ? "❌ 执行失败" : failed ? "⚠️ 有失败任务" : "✅ 无异常";
+  const status = fatal ? "❌ 执行失败" : failed ? "⚠️ 有失败任务" : "无异常";
   const output = [`账号 ${index + 1}｜${status}`];
   const disabled = [];
   for (const line of lines) {
