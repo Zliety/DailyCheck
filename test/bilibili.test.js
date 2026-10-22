@@ -93,8 +93,13 @@ test("同一 JSON 多账号独立执行，坏账号不影响后续账号", async
   const b = backend();
   const result = await runBilibili(JSON.stringify([{ cookie: COOKIE, coinCount: 6 }, { cookie: COOKIE, coinCount: 0 }]), { request: b.request });
   assert.equal(result.failed, true);
-  assert.match(result.outcomes[0], /第 1 个账号.*coinCount/);
-  assert.ok(result.outcomes.some((line) => /第 2 个账号.*漫画签到：成功/.test(line)));
+  assert.match(result.outcomes[0], /账号：2 个｜无异常：1 个｜异常：1 个/);
+  assert.match(result.outcomes[1], /账号 1｜❌ 执行失败/);
+  assert.match(result.outcomes[1], /coinCount/);
+  assert.match(result.outcomes[2], /账号 2｜✅ 无异常/);
+  assert.match(result.outcomes[2], /✅ 漫画签到：成功/);
+  assert.match(result.outcomes[2], /⚪ 未启用：视频投币/);
+  assert.ok(!result.outcomes[2].includes("第 2 个账号"));
   assert.equal(b.donated.size, 0);
   await assert.rejects(runBilibili("not json"), /BILI_ACCOUNTS/);
   assert.throws(() => configure({ cookie: `${COOKIE}\r\nInjected: value` }));

@@ -203,21 +203,39 @@ class BilibiliClient {
   }
 }
 
+function formatAccount(index, lines, failed, fatal) {
+  const status = fatal ? "❌ 执行失败" : failed ? "⚠️ 有失败任务" : "✅ 无异常";
+  const output = [`账号 ${index + 1}｜${status}`];
+  const disabled = [];
+  for (const line of lines) {
+    const closed = line.match(/^(.+?)：已关闭/);
+    if (closed) { disabled.push(closed[1]); continue; }
+    const icon = /：失败/.test(line) ? "❌" : /：跳过/.test(line) ? "⏭️" : "✅";
+    output.push(`${icon} ${line}`);
+  }
+  if (disabled.length) output.push(`⚪ 未启用：${disabled.join("、")}`);
+  return output.join("\n");
+}
+
 async function runBilibili(raw, { request = requestJson } = {}) {
   const accounts = parseAccounts(raw);
   const outcomes = [];
-  let failed = false;
+  let failedAccounts = 0;
   for (const [index, account] of accounts.entries()) {
     let lines;
+    let failed = false;
+    let fatal = false;
     try {
       const result = await new BilibiliClient(configure(account), request).run();
-      failed ||= result.failed;
-      lines = result.outcomes.map((line) => `第 ${index + 1} 个账号 ${line}`);
-    } catch (error) { failed = true; lines = [`第 ${index + 1} 个账号：失败（${describe(error)}）`]; }
-    outcomes.push(...lines);
-    for (const line of lines) console.log(`B站 ${line}`);
+      failed = result.failed;
+      lines = result.outcomes;
+    } catch (error) { failed = true; fatal = true; lines = [`执行：失败（${describe(error)}）`]; }
+    if (failed) failedAccounts++;
+    outcomes.push(`\n${formatAccount(index, lines, failed, fatal)}`);
+    for (const line of lines) console.log(`B站 第 ${index + 1} 个账号 ${line}`);
   }
-  return { failed, outcomes };
+  outcomes.unshift(`账号：${accounts.length} 个｜无异常：${accounts.length - failedAccounts} 个｜异常：${failedAccounts} 个`);
+  return { failed: failedAccounts > 0, outcomes };
 }
 
 module.exports = { runBilibili, BilibiliClient, BiliError, configure };
