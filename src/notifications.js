@@ -58,7 +58,10 @@ function createChannels(env) {
   if (configured(env.SENDKEY)) {
     add("Server 酱", async (title, content) => {
       const url = `https://sctapi.ftqq.com/${encodeURIComponent(env.SENDKEY)}.send`;
-      const form = new URLSearchParams({ title, desp: content });
+      // Server Chan renders Markdown: separate account results into paragraphs
+      // so a single newline is not collapsed into a space.
+      const desp = content.replace(/\r\n?/g, "\n").replace(/\n/g, "\n\n");
+      const form = new URLSearchParams({ title, desp });
       const result = await request(url, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -128,6 +131,7 @@ function createChannels(env) {
         token: env.PUSH_PLUS_TOKEN,
         title,
         content,
+        template: "txt",
       });
       return result.ok && result.body?.code === 200;
     });
