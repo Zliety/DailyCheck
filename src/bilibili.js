@@ -244,8 +244,8 @@ class BilibiliClient {
 }
 
 function formatAccount(index, lines, failed, fatal) {
-  const status = fatal ? "❌ 执行失败" : failed ? "⚠️ 有失败任务" : "无异常";
-  const output = [`账号 ${index + 1}｜${status}`];
+  const status = fatal ? "❌ 执行失败" : failed ? "⚠️ 有失败任务" : "";
+  const output = [`账号 ${index + 1}${status ? `｜${status}` : ""}`];
   const disabled = [];
   for (const line of lines) {
     const closed = line.match(/^(.+?)：已关闭/);
@@ -274,7 +274,7 @@ async function runBilibili(raw, { request = requestJson } = {}) {
     outcomes.push(`\n${formatAccount(index, lines, failed, fatal)}`);
     for (const line of lines) console.log(`B站 第 ${index + 1} 个账号 ${line}`);
   }
-  outcomes.unshift(`账号：${accounts.length} 个｜无异常：${accounts.length - failedAccounts} 个｜异常：${failedAccounts} 个`);
+  outcomes.unshift(`账号：${accounts.length} 个${failedAccounts ? `｜异常：${failedAccounts} 个` : ""}`);
   return { failed: failedAccounts > 0, outcomes };
 }
 

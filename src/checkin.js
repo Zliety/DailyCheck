@@ -75,14 +75,14 @@ async function runTianyi(rawAccounts = process.env.TY_ACCOUNTS, {
 
       if (result.isSign) {
         const message = `第 ${index + 1} 个账号：今天已经签到过。`;
-        outcomes.push(`\n账号 ${index + 1}｜无异常\n✅ 签到：今天已经签到过`);
+        outcomes.push(`\n账号 ${index + 1}\n✅ 签到：今天已经签到过`);
         console.log(message);
       } else {
         const bonus = Number.isFinite(result.netdiskBonus)
           ? `，获得 ${result.netdiskBonus} MB 空间`
           : "";
         const message = `第 ${index + 1} 个账号：签到成功${bonus}。`;
-        outcomes.push(`\n账号 ${index + 1}｜无异常\n✅ 签到：成功${bonus}`);
+        outcomes.push(`\n账号 ${index + 1}\n✅ 签到：成功${bonus}`);
         console.log(message);
       }
     } catch (error) {
@@ -93,7 +93,7 @@ async function runTianyi(rawAccounts = process.env.TY_ACCOUNTS, {
     }
   }
 
-  outcomes.unshift(`账号：${accounts.length} 个｜无异常：${accounts.length - failedAccounts} 个｜异常：${failedAccounts} 个`);
+  outcomes.unshift(`账号：${accounts.length} 个${failedAccounts ? `｜异常：${failedAccounts} 个` : ""}`);
   return { failed: failedAccounts > 0, outcomes };
 }
 
