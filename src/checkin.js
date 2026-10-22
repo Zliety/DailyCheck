@@ -1,5 +1,7 @@
 "use strict";
 
+const { waitRandom } = require("./interval");
+
 process.umask(0o077);
 
 const fs = require("node:fs/promises");
@@ -14,6 +16,7 @@ const { SignInClient, describeFailure } = require("./signin-client");
 sdkLogger.configure({ isDebugEnabled: false, consoleOutput: false });
 
 async function runTianyi(rawAccounts = process.env.TY_ACCOUNTS, {
+  wait,
   createClient = (options) => new SignInClient(options),
   tokenDirectory = path.resolve(__dirname, "..", ".token"),
 } = {}) {
@@ -48,6 +51,7 @@ async function runTianyi(rawAccounts = process.env.TY_ACCOUNTS, {
   let failedAccounts = 0;
   const outcomes = [];
   for (const [index, account] of accounts.entries()) {
+    if (index) await waitRandom("天翼云盘账号间隔", { wait });
     const userName = account.userName.trim();
     const phone = /^1[3-9]\d{9}$/.test(userName)
       ? `（${userName.slice(0, 3)}****${userName.slice(-4)}）` : "";

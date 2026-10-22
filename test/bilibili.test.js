@@ -163,7 +163,7 @@ test("不确定当天投币量时不扣币，保留余额和任务关闭生效",
 
 test("同一 JSON 多账号独立执行，坏账号不影响后续账号", async () => {
   const b = backend();
-  const result = await runBilibili(JSON.stringify([{ cookie: COOKIE, coinCount: 6 }, { cookie: COOKIE, coinCount: 0 }]), { request: b.request });
+  const result = await runBilibili(JSON.stringify([{ cookie: COOKIE, coinCount: 6 }, { cookie: COOKIE, coinCount: 0 }]), { request: b.request, wait: async () => {} });
   assert.equal(result.failed, true);
   assert.match(result.outcomes[0], /账号：2 个｜无异常：1 个｜异常：1 个/);
   assert.match(result.outcomes[1], /账号 1｜❌ 执行失败/);
@@ -191,7 +191,7 @@ test("动态无视频回退排行榜，指定视频不调用选片接口", async
 test("两个平台独立执行，只统一推送一次；单平台配置也可用", async () => {
   let notified = 0;
   let ranBili = false;
-  const code = await main({
+  const code = await main({ wait: async () => {},
     env: { TY_ACCOUNTS: "bad json", BILI_ACCOUNTS: "[]" },
     tianyi: async () => { throw new Error("TY_ACCOUNTS 不是有效的 JSON 数组。"); },
     bilibili: async () => { ranBili = true; return { failed: false, outcomes: ["第 1 个账号 视频投币：成功投 1 枚"] }; },
@@ -206,8 +206,8 @@ test("两个平台独立执行，只统一推送一次；单平台配置也可�
   assert.equal(code, 1);
   assert.equal(ranBili, true);
   assert.equal(notified, 1);
-  assert.equal(await main({ env: {}, notify: async () => assert.fail() }), 2);
-  assert.equal(await main({ env: { BILI_ACCOUNTS: "[]" },
+  assert.equal(await main({ wait: async () => {}, env: {}, notify: async () => assert.fail() }), 2);
+  assert.equal(await main({ wait: async () => {}, env: { BILI_ACCOUNTS: "[]" },
     tianyi: async () => assert.fail(), bilibili: async () => ({ failed: false, outcomes: ["成功"] }),
     notify: async () => false }), 0);
 });
@@ -291,7 +291,7 @@ test("推送在账号标题下展示任务后的等级经验与硬币余额", as
         level_info: { current_level: 5, current_exp: navCalls === 1 ? 23000 : 23010, next_exp: 28800 } } };
     }
   });
-  const result = await runBilibili(JSON.stringify([{ cookie: COOKIE, coinCount: 1, videoIds: VIDEOS }]), { request: b.request });
+  const result = await runBilibili(JSON.stringify([{ cookie: COOKIE, coinCount: 1, videoIds: VIDEOS }]), { request: b.request, wait: async () => {} });
   assert.equal(result.failed, false);
   assert.equal(navCalls, 2);
   assert.match(result.outcomes[1], /^\n账号 1（测试昵称）\n等级 Lv\.5｜经验 23010\/28800｜硬币 9\.5\n/);

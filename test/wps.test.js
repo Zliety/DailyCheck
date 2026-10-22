@@ -223,14 +223,14 @@ test("CSRF 缺失不发起活动提交，仍保留任务中心签到和积分结
 
 test("WPS 和现有两个平台合并推送一次，失败独立且支持只配置 WPS", async () => {
   let sent = 0;
-  const result = await main({ env: { TY_ACCOUNTS: "ty", BILI_ACCOUNTS: "bili", WPS_ACCOUNTS: "wps" },
+  const result = await main({ wait: async () => {}, env: { TY_ACCOUNTS: "ty", BILI_ACCOUNTS: "bili", WPS_ACCOUNTS: "wps" },
     tianyi: async () => { throw new Error("TY_ACCOUNTS 格式错误"); },
     bilibili: async () => ({ failed: false, outcomes: ["B站结果"] }),
     wps: async () => ({ failed: false, outcomes: ["WPS结果"] }),
     notify: async (title, body) => { sent++; assert.equal(title, "每日签到结果"); assert.match(body, /【天翼云盘】.*\n.*TY_ACCOUNTS/); assert.match(body, /【B站】\nB站结果/); assert.match(body, /【WPS】\nWPS结果/); return false; },
   });
   assert.equal(result, 1); assert.equal(sent, 1);
-  assert.equal(await main({ env: { WPS_ACCOUNTS: "wps" }, wps: async () => ({ failed: false, outcomes: ["成功"] }),
+  assert.equal(await main({ wait: async () => {}, env: { WPS_ACCOUNTS: "wps" }, wps: async () => ({ failed: false, outcomes: ["成功"] }),
     tianyi: async () => assert.fail(), bilibili: async () => assert.fail(), notify: async () => false }), 0);
 });
 

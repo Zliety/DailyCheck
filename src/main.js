@@ -1,11 +1,13 @@
 "use strict";
 
+const { waitRandom } = require("./interval");
+
 const { runTianyi } = require("./checkin");
 const { runBilibili } = require("./bilibili");
 const { runWps } = require("./wps");
 const { sendNotifications } = require("./notifications");
 
-async function main({ env = process.env, tianyi = runTianyi, bilibili = runBilibili, wps = runWps, notify = sendNotifications } = {}) {
+async function main({ env = process.env, tianyi = runTianyi, bilibili = runBilibili, wps = runWps, wait, notify = sendNotifications } = {}) {
   const platforms = [
     ["天翼云盘", env.TY_ACCOUNTS, tianyi],
     ["B站", env.BILI_ACCOUNTS, bilibili],
@@ -17,7 +19,8 @@ async function main({ env = process.env, tianyi = runTianyi, bilibili = runBilib
   }
   let failed = false;
   const sections = [];
-  for (const [name, config, run] of platforms) {
+  for (const [index, [name, config, run]] of platforms.entries()) {
+    if (index) await waitRandom("平台间隔", { min: 10, max: 30, wait });
     console.log(`开始执行：${name}`);
     try {
       const result = await run(config);

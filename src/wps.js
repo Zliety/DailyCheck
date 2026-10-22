@@ -1,5 +1,7 @@
 "use strict";
 
+const { waitRandom } = require("./interval");
+
 // WPS protocol adapted from Cat-zaizai/ZaiZaiCat-Checkin (MIT).
 // See THIRD_PARTY_NOTICES.md for attribution and license.
 const https = require("node:https");
@@ -353,6 +355,7 @@ async function runWps(raw, options = {}) {
   const outcomes = [];
   let failedAccounts = 0;
   for (const [index, account] of accounts.entries()) {
+    if (index) await waitRandom("WPS账号间隔", { wait: options.wait });
     let name = "";
     let result;
     try {
@@ -363,7 +366,6 @@ async function runWps(raw, options = {}) {
     if (result.failed) failedAccounts++;
     outcomes.push(`\n账号 ${index + 1}${name ? `（${name}）` : ""}${result.failed ? "｜⚠️ 有失败任务" : ""}\n${result.lines.join("\n")}`);
     for (const line of result.lines) console.log(`WPS 第 ${index + 1} 个账号 ${line}`);
-    if (index < accounts.length - 1) await (options.wait || sleep)(5000);
   }
   outcomes.unshift(`账号：${accounts.length} 个｜无异常：${accounts.length - failedAccounts} 个｜异常：${failedAccounts} 个`);
   return { failed: failedAccounts > 0, outcomes };

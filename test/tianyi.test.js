@@ -14,8 +14,10 @@ async function tokenDir(t) {
 }
 
 test("天翼推送按账号分组，准确汇总成功、已签到和失败，不泄露凭据", async (t) => {
+  const intervals = [];
   const raw = JSON.stringify(["13812340001", "13912340002", "18612340003"].map((userName) => ({ userName, password: "secret-password" })));
   const result = await runTianyi(raw, {
+    wait: async ms => { intervals.push(ms); },
     tokenDirectory: await tokenDir(t),
     createClient: ({ username }) => ({
       async getSessionKey() {
@@ -24,6 +26,8 @@ test("天翼推送按账号分组，准确汇总成功、已签到和失败，�
       async userSign() { return { isSign: username === "13912340002", netdiskBonus: 65 }; },
     }),
   });
+  assert.equal(intervals.length, 2);
+  assert.ok(intervals.every(ms => ms >= 5000 && ms <= 15000 && ms % 1000 === 0));
   assert.equal(result.failed, true);
   assert.equal(result.outcomes[0], "账号：3 个｜无异常：2 个｜异常：1 个");
   assert.match(result.outcomes[1], /账号 1（138\*\*\*\*0001）\n✅ 签到：成功，获得 65 MB 空间/);
@@ -39,6 +43,7 @@ test("签到响应异常显示签到阶段，后续账号照常执行，未知�
   const result = await runTianyi(JSON.stringify([
     { userName: "invalid", password: "secret" }, { userName: "valid", password: "secret" },
   ]), {
+    wait: async () => {},
     tokenDirectory: await tokenDir(t),
     createClient: ({ username }) => ({
       async getSessionKey() {},

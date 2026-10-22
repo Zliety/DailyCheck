@@ -1,5 +1,7 @@
 "use strict";
 
+const { waitRandom } = require("./interval");
+
 const https = require("node:https");
 
 class BiliError extends Error {
@@ -371,11 +373,12 @@ function formatAccount(index, lines, failed, fatal, accountInfo, nickname) {
   return output.join("\n");
 }
 
-async function runBilibili(raw, { request = requestJson } = {}) {
+async function runBilibili(raw, { request = requestJson, wait } = {}) {
   const accounts = parseAccounts(raw);
   const outcomes = [];
   let failedAccounts = 0;
   for (const [index, account] of accounts.entries()) {
+    if (index) await waitRandom("B站账号间隔", { wait });
     let lines;
     let failed = false;
     let fatal = false;
