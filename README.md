@@ -104,11 +104,30 @@ B 站任务流程参考 [dangks/bilibili_checkin](https://github.com/dangks/bili
 
 ## 本地运行
 
-需要 Node.js 20 或更新版本。
+需要 Node.js 20 或更新版本。先在项目目录安装依赖：
 
 ```sh
 npm ci
-TY_ACCOUNTS='[{"userName":"你的账号","password":"你的密码"}]' npm start
 ```
 
-Windows PowerShell 可先将 JSON 字符串赋给 `$env:TY_ACCOUNTS`，再运行 `npm start`。本地 `.token` 目录保存各账号的登录会话，请勿分享或提交该目录。
+**Linux / macOS（Bash、Zsh）**：设置环境变量后执行，下面示例同时运行天翼云盘和两个 B 站账号：
+
+```sh
+export TY_ACCOUNTS='[{"userName":"你的天翼账号","password":"你的天翼密码"}]'
+export BILI_ACCOUNTS='[{"cookie":"账号1的完整Cookie","coinCount":1},{"cookie":"账号2的完整Cookie","coinCount":2}]'
+npm start
+```
+
+**Windows PowerShell**：
+
+```powershell
+$env:TY_ACCOUNTS = '[{"userName":"你的天翼账号","password":"你的天翼密码"}]'
+$env:BILI_ACCOUNTS = '[{"cookie":"账号1的完整Cookie","coinCount":1},{"cookie":"账号2的完整Cookie","coinCount":2}]'
+npm start
+```
+
+请将示例中的账号、密码和 Cookie 替换为真实值。B 站的 `cookie` 直接填写完整 Cookie，配置格式与上方 `BILI_ACCOUNTS` Secret 一致，其他投币设置和任务开关也可写在同一 JSON 中。只运行一个平台时，只需设置对应的 `TY_ACCOUNTS` 或 `BILI_ACCOUNTS`。
+
+如需本地推送，同样通过进程环境变量设置上表中的 `SENDKEY` 等通知凭据；两个平台的结果会合并发送。GitHub 中的 Secrets 不会自动同步到本地，脚本也不会自动读取 `.env` 文件。
+
+`npm start` 每次执行一轮任务后退出。本地定时执行需要自行配置系统定时任务；GitHub Actions 的每日定时只在 GitHub 上生效。本地 `.token` 目录保存天翼云盘账号的登录会话，请勿分享或提交该目录。
