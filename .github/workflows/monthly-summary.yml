@@ -1,0 +1,54 @@
+name: 签到月度统计
+
+on:
+  schedule:
+    - cron: "17 0 1 * *" # 每月 1 号北京时间 08:17
+  workflow_dispatch:
+    inputs:
+      month:
+        description: "统计月份（YYYY-MM，留空为上个月）"
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: checkin-monthly-summary
+  cancel-in-progress: false
+
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Summarize previous month
+        id: summary
+        uses: actions/github-script@v7
+        env:
+          SUMMARY_MONTH: ${{ inputs.month }}
+        with:
+          script: |
+            const { monthlySummary } = require('./scripts/monthly-summary.js');
+            await monthlySummary({ github, context, core, requestedMonth: process.env.SUMMARY_MONTH || '' });
+
+      - name: Commit monthly log
+        if: steps.summary.outputs.updated == 'true'
+        env:
+          SUMMARY_MONTH: ${{ steps.summary.outputs.month }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- logs/checkin-monthly.log
+          git diff --cached --quiet && exit 0
+          git commit -m "docs: record ${SUMMARY_MONTH} sign-in totals"
+          git pull --rebase origin "$DEFAULT_BRANCH"
+          git push origin "HEAD:$DEFAULT_BRANCH"

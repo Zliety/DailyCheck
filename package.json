@@ -5,7 +5,8 @@
   "description": "天翼云盘个人签到",
   "main": "src/checkin.js",
   "scripts": {
-    "start": "node src/checkin.js"
+    "start": "node src/checkin.js",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=20"
