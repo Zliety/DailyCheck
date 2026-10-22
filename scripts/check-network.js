@@ -34,10 +34,11 @@ function probe(hostname, family) {
 }
 
 async function main() {
-  console.log("天翼云盘和 B 站网络诊断：分别测试 IPv4 / IPv6，不使用账号凭据。签到请求已设置使用 IPv4。");
+  console.log("天翼云盘、B 站和 WPS 网络诊断：分别测试 IPv4 / IPv6，不使用账号凭据。签到请求已设置使用 IPv4。");
   const results = await Promise.all(
     ["cloud.189.cn", "open.e.189.cn", "api.cloud.189.cn",
-      "api.bilibili.com", "api.live.bilibili.com", "manga.bilibili.com"].flatMap(
+      "api.bilibili.com", "api.live.bilibili.com", "manga.bilibili.com",
+      "personal-act.wps.cn", "personal-bus.wps.cn", "tiance.wps.cn"].flatMap(
       (hostname) => [4, 6].map((family) => probe(hostname, family)),
     ),
   );

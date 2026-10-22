@@ -84,7 +84,7 @@ function removeTrailingCommas(text) {
   return result;
 }
 
-function parseAccounts(raw) {
+function parseAccounts(raw, { extraFields = [] } = {}) {
   // Secret values copied from documentation sometimes include a BOM/code fence.
   let source = typeof raw === "string" ? raw.trim().replace(/^\uFEFF/, "") : "";
   const fence = source.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i);
@@ -130,7 +130,9 @@ function parseAccounts(raw) {
           if (!stack.length && !quoted) break;
         }
         if (!ending) throw new Error("missing cookie boundary");
-        if (/[\r\n]/.test(value) || /"(?:cookie|coinCount|reserveCoins|coinSource|videoIds|likeOnCoin|tasks)"\s*:/.test(value)) {
+        const fields = ["cookie", "coinCount", "reserveCoins", "coinSource", "videoIds", "likeOnCoin", "tasks", ...extraFields];
+        const adjacentField = new RegExp(`"(?:${fields.join("|")})"\\s*:`);
+        if (/[\r\n]/.test(value) || adjacentField.test(value)) {
           throw new Error("ambiguous cookie boundary");
         }
         let escaped = "";

@@ -2,7 +2,7 @@
   "name": "dailycheck-cloud189",
   "version": "1.0.0",
   "private": true,
-  "description": "天翼云盘和 B 站每日自动签到",
+  "description": "天翼云盘、B 站和 WPS 每日自动签到",
   "main": "src/main.js",
   "scripts": {
     "start": "node src/main.js",

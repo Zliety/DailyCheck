@@ -1,6 +1,6 @@
 # DailyCheck
 
-天翼云盘个人签到和 B 站每日任务脚本，支持多账号，在同一个 GitHub Actions 工作流中执行，并将结果合并推送。
+天翼云盘个人签到、B 站每日任务和 WPS 签到脚本，支持多账号，在同一个 GitHub Actions 工作流中执行，并将结果合并推送。
 
 ## 通用说明
 
@@ -10,16 +10,17 @@
 
 1. 打开仓库 **Settings → Secrets and variables → Actions**，按需在 **Repository secrets** 中添加下列配置，具体格式见对应的平台章节。
 2. 如需通知，在同一页面添加通知渠道的凭据。
-3. 打开仓库 **Actions** 页面，选择“每日签到（天翼云盘和B站）”，点击 **Run workflow** 手动执行一次。
+3. 打开仓库 **Actions** 页面，选择“每日签到（天翼云盘、B站和WPS）”，点击 **Run workflow** 手动执行一次。
 
 | 平台 | Repository Secret | 配置说明 |
 | --- | --- | --- |
 | 天翼云盘 | `TY_ACCOUNTS` | [天翼云盘配置](#天翼云盘) |
 | B 站 | `BILI_ACCOUNTS` | [B 站配置](#b-站) |
+| WPS | `WPS_ACCOUNTS` | [WPS 配置](#wps) |
 
-两个平台可以同时启用，也可以只配置其中一个。每个平台的全部账号放在对应 Secret 的一个 JSON 数组中；单账号也使用数组。将 JSON 直接填入 Secret，不要附加变量名、等号、代码框或外层单引号。请勿把真实账号密码、Cookie 或令牌写入仓库文件。
+三个平台可以按需启用一个或多个。每个平台的全部账号放在对应 Secret 的一个 JSON 数组中；单账号也使用数组。将 JSON 直接填入 Secret，不要附加变量名、等号、代码框或外层单引号。请勿把真实账号密码、Cookie 或令牌写入仓库文件。
 
-各平台独立执行，一个平台失败后会继续另一个平台。执行结束后统一推送结果；有任务或通知失败时，最终工作流会显示失败状态。
+各平台独立执行，一个平台失败后会继续其他平台。执行结束后统一推送结果；有任务或通知失败时，最终工作流会显示失败状态。
 
 ### 统一推送
 
@@ -50,7 +51,7 @@ npm ci
 npm start
 ```
 
-只运行一个平台时，仅设置该平台的账号变量；同时运行时，在同一终端设置两个平台的变量，再运行一次 `npm start`。如需推送，同样通过进程环境变量设置上表中的通知凭据。
+只运行一个平台时，仅设置该平台的账号变量；同时运行时，在同一终端设置所需平台的变量，再运行一次 `npm start`。如需推送，同样通过进程环境变量设置上表中的通知凭据。
 
 GitHub Secrets 不会自动同步到本地，脚本不会自动读取 `.env` 文件。`npm start` 每次执行一轮任务后退出；本地定时执行需要自行配置系统定时任务，GitHub Actions 的定时设置只在 GitHub 上生效。
 
@@ -172,3 +173,76 @@ $env:BILI_ACCOUNTS = '[{"cookie":"账号1的完整Cookie","coinCount":1},{"cooki
 ```
 
 将占位文字替换为各账号的完整 Cookie。配置格式与 `BILI_ACCOUNTS` Secret 一致，其他投币设置和任务开关也可写在同一 JSON 中。设置完成后，按前面的本地运行说明执行 `npm start`。
+
+
+## WPS
+
+### 账号和任务配置
+
+功能参考 [Cat-zaizai/ZaiZaiCat-Checkin](https://github.com/Cat-zaizai/ZaiZaiCat-Checkin/tree/main/script/wps)，使用 Node.js 实现，与天翼云盘、B 站共用工作流和通知渠道。
+
+在 **Repository secrets** 中新增 **`WPS_ACCOUNTS`**。所有 WPS 账号、备注和任务设置都放在这一个 JSON 数组中：
+
+```json
+[
+  {
+    "name": "我的WPS",
+    "cookie": "uid=123456; wps_sid=你的登录凭据; act_csrf_token=你的CSRF值",
+    "maxLottery": 2,
+    "maxTrials": 1
+  },
+  {
+    "name": "备用账号",
+    "cookie": "uid=234567; wps_sid=另一个账号的登录凭据; csrf=另一个账号的CSRF值",
+    "maxLottery": 0,
+    "tasks": {
+      "memberTrial": false
+    }
+  }
+]
+```
+
+在浏览器登录 [WPS 用户中心](https://personal-act.wps.cn/center_page/user_index)，打开任务中心及“天天领福利”页面。按 `F12`，在 **Network（网络）** 中选中对应页面请求，从 **Request Headers（请求标头）** 复制完整 Cookie 到 `cookie`。保留 `wps_sid`、`uid` 和 `act_csrf_token` 或 `csrf` 等原有字段，只复制 Cookie 的值。
+
+| JSON 字段 | 默认值 | 说明 |
+| --- | --- | --- |
+| `cookie` | 必填 | 当前账号的完整 Cookie，不能换行 |
+| `name` | 不显示备注 | 可选，显示在推送的账号序号后面 |
+| `userId` | 从 Cookie 的 `uid` 读取 | Cookie 没有 `uid` 时可手动填写 WPS 用户 ID；两者都有时须一致 |
+| `maxLottery` | `2` | 整数 `0`～`10`，任务中心和天天抽奖各自每轮运行的抽奖上限；`0` 关闭抽奖，仅使用接口返回的可用次数 |
+| `maxTrials` | `1` | 整数 `0`～`10`，每轮最多申请的会员试用项目数；`0` 关闭申请，仅处理有库存、未申请且有剩余次数的项目 |
+| `userAgent` | 浏览器 UA | 可选，如需指定，可填写获取 Cookie 时使用的浏览器 UA |
+| `tasks` | 六项均为 `true` | 以下任务开关，可只填写需要关闭的项目 |
+
+任务开关：
+
+```json
+{
+  "centerSign": true,
+  "centerLottery": true,
+  "freeMember": true,
+  "memberTrial": true,
+  "dailyLottery": true,
+  "reward": true
+}
+```
+
+分别对应任务中心签到、任务中心抽奖、打卡领会员、会员免费试用、天天抽奖和七天奖励领取。积分在任务结束后查询。活动入口和组件从官方页面数据读取，已签到、已申请或无剩余次数时跳过对应提交；未找到活动时会标记跳过。权益以账号资格、当期活动及接口实际结果为准。
+
+一个账号或任务失败后继续执行其他账号和任务。登录明确失效时停止该账号的后续请求。提交超时不会自动重试；旧打卡周期被接口明确判定失效时，会按参考项目的流程重新开始一个周期。
+
+### 本地配置
+
+Linux / macOS（Bash、Zsh）：
+
+```sh
+export WPS_ACCOUNTS='[{"name":"我的WPS","cookie":"uid=123456; wps_sid=你的登录凭据; act_csrf_token=你的CSRF值","maxLottery":2}]'
+```
+
+Windows PowerShell：
+
+```powershell
+$env:WPS_ACCOUNTS = '[{"name":"我的WPS","cookie":"uid=123456; wps_sid=你的登录凭据; act_csrf_token=你的CSRF值","maxLottery":2}]'
+```
+
+将示例替换为对应账号的完整 Cookie，再按前面的本地运行说明执行 `npm start`。
