@@ -1,0 +1,223 @@
+"use strict";
+
+const https = require("node:https");
+
+class BiliError extends Error {
+  constructor(message, { code, status, duplicate = false, unavailable = false } = {}) {
+    super(message);
+    Object.assign(this, { code, status, duplicate, unavailable });
+  }
+}
+
+function describe(error) {
+  if (error instanceof BiliError) return error.message;
+  const code = error?.code;
+  return typeof code === "string" && /^[A-Z0-9_]{1,40}$/.test(code)
+    ? `网络请求失败（${code}）` : "请求失败，未输出原始响应以保护凭据";
+}
+
+function requestJson(url, cookie, form) {
+  return new Promise((resolve, reject) => {
+    const body = form ? new URLSearchParams(form).toString() : undefined;
+    const hostname = new URL(url).hostname;
+    const referer = hostname === "manga.bilibili.com" ? "https://manga.bilibili.com/" :
+      hostname === "api.live.bilibili.com" ? "https://live.bilibili.com/" : "https://www.bilibili.com/";
+    const request = https.request(url, {
+      method: body === undefined ? "GET" : "POST",
+      family: 4,
+      signal: AbortSignal.timeout(20000),
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
+        Referer: referer,
+        Cookie: cookie,
+        Accept: "application/json",
+        ...(body === undefined ? {} : {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Content-Length": Buffer.byteLength(body),
+        }),
+      },
+    }, (response) => {
+      const status = response.statusCode;
+      if (status < 200 || status >= 300) {
+        response.resume();
+        reject(new BiliError(`接口返回 HTTP ${status}`, { status, unavailable: status === 404 || status === 410 }));
+        return;
+      }
+      const chunks = [];
+      let size = 0;
+      response.on("data", (chunk) => {
+        size += chunk.length;
+        if (size > 2 * 1024 * 1024) {
+          response.destroy(new BiliError("接口响应过大"));
+        } else chunks.push(chunk);
+      });
+      response.on("error", reject);
+      response.on("end", () => {
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+        catch { reject(new BiliError("接口返回了非 JSON 内容，可能需要安全验证")); }
+      });
+    });
+    request.on("error", (error) => {
+      if (error.code === "ABORT_ERR") reject(new BiliError("网络请求超时（ETIMEDOUT）"));
+      else reject(error);
+    });
+    // Never retry mutation requests, especially coin donations.
+    request.end(body);
+  });
+}
+
+function parseAccounts(raw) {
+  let accounts;
+  try { accounts = JSON.parse(raw); }
+  catch { throw new Error("BILI_ACCOUNTS 不是有效的 JSON 数组。"); }
+  if (!Array.isArray(accounts) || !accounts.length) throw new Error("BILI_ACCOUNTS 必须是非空 JSON 数组。");
+  return accounts;
+}
+
+function configure(account) {
+  if (!account || typeof account.cookie !== "string" || /[\r\n]/.test(account.cookie)) {
+    throw new BiliError("cookie 必须是没有换行符的字符串");
+  }
+  const cookies = new Map(account.cookie.split(";").map((part) => {
+    const index = part.indexOf("=");
+    return [part.slice(0, index).trim(), part.slice(index + 1).trim()];
+  }));
+  for (const field of ["SESSDATA", "bili_jct", "DedeUserID"]) {
+    if (!cookies.get(field)) throw new BiliError(`cookie 缺少 ${field}`);
+  }
+  const coinCount = account.coinCount ?? 1;
+  const reserveCoins = account.reserveCoins ?? 0;
+  if (!Number.isInteger(coinCount) || coinCount < 0 || coinCount > 5) throw new BiliError("coinCount 必须是 0～5 的整数");
+  if (!Number.isInteger(reserveCoins) || reserveCoins < 0) throw new BiliError("reserveCoins 必须是非负整数");
+  const coinSource = account.coinSource ?? "dynamic";
+  if (!["dynamic", "ranking"].includes(coinSource)) throw new BiliError("coinSource 只能是 dynamic 或 ranking");
+  const videoIds = account.videoIds ?? [];
+  if (!Array.isArray(videoIds) || videoIds.some((id) => typeof id !== "string" || !/^BV[0-9A-Za-z]{10}$/.test(id))) {
+    throw new BiliError("videoIds 必须是 BV 号数组");
+  }
+  const tasks = { share: true, watch: true, coin: true, live: true, manga: true };
+  if (account.tasks !== undefined && (!account.tasks || typeof account.tasks !== "object" || Array.isArray(account.tasks))) {
+    throw new BiliError("tasks 必须是任务开关对象");
+  }
+  for (const [key, value] of Object.entries(account.tasks || {})) {
+    if (!Object.hasOwn(tasks, key) || typeof value !== "boolean") throw new BiliError("tasks 只能包含 share、watch、coin、live、manga 布尔开关");
+    tasks[key] = value;
+  }
+  if (account.likeOnCoin !== undefined && typeof account.likeOnCoin !== "boolean") throw new BiliError("likeOnCoin 必须是布尔值");
+  return { cookie: account.cookie, csrf: cookies.get("bili_jct"), coinCount, reserveCoins, coinSource,
+    videoIds: [...new Set(videoIds)], likeOnCoin: account.likeOnCoin ?? false, tasks };
+}
+
+class BilibiliClient {
+  constructor(config, request = requestJson) { this.config = config; this.request = request; }
+
+  async api(url, form) {
+    const result = await this.request(url, this.config.cookie, form);
+    if (!result || !["number", "string"].includes(typeof result.code)) throw new BiliError("接口返回格式异常");
+    if (result.code !== 0) {
+      const message = String(result.message || result.msg || "");
+      const duplicate = result.code === 1011040 || /已签到|已经签到|重复签到|already.*(sign|check)|clockin.*duplicate/i.test(message);
+      const unavailable = /已下线|活动.*结束|停止服务|not found/i.test(message);
+      const reason = duplicate ? "今天已经签到过" : unavailable ? "接口或活动已下线" :
+        /验证|captcha|risk/i.test(message) ? "需要安全验证" :
+        result.code === -101 ? "登录凭据已失效" : result.code === -111 ? "CSRF 校验失败" : "接口拒绝请求";
+      const code = /^-?[0-9A-Za-z_]{1,40}$/.test(String(result.code)) ? `，代码 ${result.code}` : "";
+      throw new BiliError(`${reason}${code}`, { code: result.code, duplicate, unavailable });
+    }
+    return result.data;
+  }
+
+  async videos() {
+    if (this.config.videoIds.length) return this.config.videoIds;
+    let ids = [];
+    if (this.config.coinSource === "dynamic") {
+      const data = await this.api("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all?type=video");
+      ids = (data?.items || []).map((item) => item.modules?.module_dynamic?.major?.archive?.bvid).filter(Boolean);
+    }
+    if (!ids.length) {
+      const data = await this.api("https://api.bilibili.com/x/web-interface/ranking/v2?rid=0&type=all");
+      ids = (data?.list || []).map((video) => video.bvid);
+    }
+    return [...new Set(ids.filter((id) => typeof id === "string" && /^BV[0-9A-Za-z]{10}$/.test(id)))].slice(0, 20);
+  }
+
+  async coins(user, getVideos) {
+    const c = this.config;
+    if (!c.coinCount) return "已关闭（coinCount=0）";
+    const exp = await this.api("https://api.bilibili.com/x/web-interface/coin/today/exp");
+    if (!Number.isFinite(exp) || exp < 0) throw new BiliError("无法确认今日投币经验，已停止投币");
+    const remaining = Math.max(0, c.coinCount - Math.floor(exp / 10));
+    if (!remaining) return "今日已达到配置的投币目标";
+    if (!Number.isFinite(user.money)) throw new BiliError("无法确认硬币余额，已停止投币");
+    const target = Math.min(remaining, Math.max(0, Math.floor(user.money) - c.reserveCoins));
+    if (!target) return "跳过（余额不足或已达到保留余额）";
+    let donated = 0;
+    for (const bvid of await getVideos()) {
+      if (donated >= target) break;
+      try {
+        const status = await this.api(`https://api.bilibili.com/x/web-interface/archive/coins?bvid=${encodeURIComponent(bvid)}`);
+        if (!Number.isFinite(status?.multiply)) throw new BiliError("无法确认视频投币状态");
+        if (status.multiply > 0) continue;
+        await this.api("https://api.bilibili.com/x/web-interface/coin/add", {
+          bvid, multiply: "1", select_like: c.likeOnCoin ? "1" : "0", csrf: c.csrf,
+        });
+        donated++;
+      } catch (error) {
+        throw new BiliError(`已成功投 ${donated} 枚；${describe(error)}；停止投币，不自动重试`);
+      }
+    }
+    if (donated < target) throw new BiliError(`已成功投 ${donated} 枚，目标 ${target} 枚，可用视频不足`);
+    return `成功投 ${donated} 枚（每日目标 ${c.coinCount} 枚）`;
+  }
+
+  async run() {
+    const user = await this.api("https://api.bilibili.com/x/web-interface/nav");
+    if (!user?.isLogin) throw new BiliError("登录凭据已失效或登录状态异常");
+    let videoPromise;
+    const getVideos = () => (videoPromise ||= this.videos());
+    const firstVideo = async () => {
+      const ids = await getVideos();
+      if (!ids.length) throw new BiliError("没有可用的视频");
+      return ids[0];
+    };
+    const c = this.config;
+    const tasks = [
+      ["share", "分享视频", async () => { await this.api("https://api.bilibili.com/x/web-interface/share/add", { bvid: await firstVideo(), csrf: c.csrf }); return "成功"; }],
+      ["watch", "观看视频", async () => { await this.api("https://api.bilibili.com/x/click-interface/web/heartbeat", { bvid: await firstVideo(), played_time: "30", csrf: c.csrf }); return "心跳上报成功"; }],
+      ["coin", "视频投币", () => this.coins(user, getVideos)],
+      ["live", "直播签到", async () => { await this.api("https://api.live.bilibili.com/xlive/web-ucenter/v1/sign/DoSign"); return "成功"; }],
+      ["manga", "漫画签到", async () => { await this.api("https://manga.bilibili.com/twirp/activity.v1.Activity/ClockIn", { platform: "ios" }); return "成功"; }],
+    ];
+    const outcomes = ["登录：成功"];
+    let failed = false;
+    for (const [key, label, execute] of tasks) {
+      if (!c.tasks[key]) { outcomes.push(`${label}：已关闭`); continue; }
+      try { outcomes.push(`${label}：${await execute()}`); }
+      catch (error) {
+        if (["live", "manga"].includes(key) && error instanceof BiliError && (error.duplicate || error.unavailable)) {
+          outcomes.push(`${label}：${error.duplicate ? "今天已经签到过" : "跳过（接口暂不可用或活动已下线）"}`);
+        } else { failed = true; outcomes.push(`${label}：失败（${describe(error)}）`); }
+      }
+    }
+    return { failed, outcomes };
+  }
+}
+
+async function runBilibili(raw, { request = requestJson } = {}) {
+  const accounts = parseAccounts(raw);
+  const outcomes = [];
+  let failed = false;
+  for (const [index, account] of accounts.entries()) {
+    let lines;
+    try {
+      const result = await new BilibiliClient(configure(account), request).run();
+      failed ||= result.failed;
+      lines = result.outcomes.map((line) => `第 ${index + 1} 个账号 ${line}`);
+    } catch (error) { failed = true; lines = [`第 ${index + 1} 个账号：失败（${describe(error)}）`]; }
+    outcomes.push(...lines);
+    for (const line of lines) console.log(`B站 ${line}`);
+  }
+  return { failed, outcomes };
+}
+
+module.exports = { runBilibili, BilibiliClient, BiliError, configure };

@@ -9,27 +9,20 @@ const {
   FileTokenStore,
   logger: sdkLogger,
 } = require("cloud189-sdk");
-const { sendNotifications } = require("./notifications");
 const { SignInClient, describeFailure } = require("./signin-client");
 
 sdkLogger.configure({ isDebugEnabled: false, consoleOutput: false });
 
-async function main() {
-  const rawAccounts = process.env.TY_ACCOUNTS;
-
+async function runTianyi(rawAccounts = process.env.TY_ACCOUNTS) {
   if (!rawAccounts) {
-    console.error("缺少 TY_ACCOUNTS，请将天翼云盘账号配置为 JSON 数组。");
-    process.exitCode = 2;
-    return;
+    throw new Error("缺少 TY_ACCOUNTS，请将天翼云盘账号配置为 JSON 数组。");
   }
 
   let accounts;
   try {
     accounts = JSON.parse(rawAccounts);
   } catch {
-    console.error("TY_ACCOUNTS 不是有效的 JSON 数组。");
-    process.exitCode = 2;
-    return;
+    throw new Error("TY_ACCOUNTS 不是有效的 JSON 数组。");
   }
 
   if (
@@ -44,9 +37,7 @@ async function main() {
         account.password.length === 0,
     )
   ) {
-    console.error("TY_ACCOUNTS 必须是包含 userName 和 password 的非空 JSON 数组。");
-    process.exitCode = 2;
-    return;
+    throw new Error("TY_ACCOUNTS 必须是包含 userName 和 password 的非空 JSON 数组。");
   }
 
   const tokenDirectory = path.resolve(__dirname, "..", ".token");
@@ -99,14 +90,7 @@ async function main() {
     }
   }
 
-  const notificationFailed = await sendNotifications(
-    "天翼云盘签到结果",
-    outcomes.join("\n"),
-  );
-  if (failed || notificationFailed) process.exitCode = 1;
+  return { failed, outcomes };
 }
 
-main().catch((error) => {
-  console.error(`天翼云盘任务失败（${describeFailure(error)}）。`);
-  process.exitCode = 1;
-});
+module.exports = { runTianyi };

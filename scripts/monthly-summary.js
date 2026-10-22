@@ -89,7 +89,7 @@ async function monthlySummary({ github, context, core, now = new Date(), request
   core.setOutput("month", month);
   core.setOutput("updated", "true");
   core.info(line);
-  await core.summary.addHeading("天翼云盘签到月报").addRaw(line).write();
+  await core.summary.addHeading("每日签到月报").addRaw(line).write();
 }
 
 module.exports = { monthlySummary, monthRange };

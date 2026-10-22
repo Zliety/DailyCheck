@@ -2,10 +2,10 @@
   "name": "dailycheck-cloud189",
   "version": "1.0.0",
   "private": true,
-  "description": "天翼云盘个人签到",
-  "main": "src/checkin.js",
+  "description": "天翼云盘和 B 站每日自动签到",
+  "main": "src/main.js",
   "scripts": {
-    "start": "node src/checkin.js",
+    "start": "node src/main.js",
     "test": "node --test"
   },
   "engines": {

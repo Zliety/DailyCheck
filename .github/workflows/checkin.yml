@@ -1,4 +1,4 @@
-name: 天翼云盘每日签到
+name: 每日签到（天翼云盘和B站）
 
 on:
   schedule:
@@ -15,7 +15,7 @@ concurrency:
 jobs:
   checkin:
     runs-on: ${{ vars.CHECKIN_RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,6 +41,7 @@ jobs:
         run: npm start
         env:
           TY_ACCOUNTS: ${{ secrets.TY_ACCOUNTS }}
+          BILI_ACCOUNTS: ${{ secrets.BILI_ACCOUNTS }}
           SENDKEY: ${{ secrets.SENDKEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
