@@ -22,12 +22,23 @@ GitHub Actions 工作流默认每天北京时间 10:35（UTC 02:35）运行，�
 
 B 站任务流程参考 [dangks/bilibili_checkin](https://github.com/dangks/bilibili_checkin)，使用 Node.js 实现，与天翼云盘共用每日工作流和通知渠道。
 
-在同一个 **Repository secrets** 页面添加 **`BILI_ACCOUNTS`**。所有 B 站账号和各自的任务、投币设置都放在这一个 JSON 数组中，无需再添加单独的投币环境变量：
+在同一个 **Repository secrets** 页面添加 **`BILI_ACCOUNTS`**。所有 B 站账号和各自的任务、投币设置都放在这一个 JSON 数组中。每个账号只需在 `cookie` 中粘贴完整 Cookie，程序会自动识别 `bili_jct`、`SESSDATA`、`DedeUserID`，其他 Cookie 字段也会保留发送；无需为这些字段或投币设置分别添加环境变量。
+
+最简多账号配置如下，将占位文字替换为各账号的完整 Cookie：
+
+```json
+[
+  {"cookie": "账号1的完整Cookie", "coinCount": 1},
+  {"cookie": "账号2的完整Cookie", "coinCount": 2}
+]
+```
+
+如需设置保留余额、视频来源或任务开关，可以使用完整配置：
 
 ```json
 [
   {
-    "cookie": "SESSDATA=账号1的值; bili_jct=账号1的值; DedeUserID=账号1的值",
+    "cookie": "账号1的完整Cookie",
     "coinCount": 1,
     "reserveCoins": 10,
     "coinSource": "dynamic",
@@ -42,7 +53,7 @@ B 站任务流程参考 [dangks/bilibili_checkin](https://github.com/dangks/bili
     }
   },
   {
-    "cookie": "SESSDATA=账号2的值; bili_jct=账号2的值; DedeUserID=账号2的值",
+    "cookie": "账号2的完整Cookie",
     "coinCount": 2,
     "reserveCoins": 5,
     "coinSource": "ranking"
@@ -50,11 +61,15 @@ B 站任务流程参考 [dangks/bilibili_checkin](https://github.com/dangks/bili
 ]
 ```
 
-在浏览器登录 B 站后，通过开发者工具的 Cookies 或 Network 获取完整 Cookie，至少包含 `SESSDATA`、`bili_jct`、`DedeUserID`，建议保留完整 Cookie。直接将 JSON 数组填入 Secret，不要加 `BILI_ACCOUNTS=`、代码框或外层单引号。Cookie 失效后更新同一个 Secret。
+获取完整 Cookie：在浏览器登录 B 站，按 `F12` 打开开发者工具，切换到 **Network（网络）** 并刷新页面。选中发往 B 站的已登录请求，在 **Request Headers（请求标头）** 中找到 **Cookie**，复制它的整段值，粘贴到对应账号的 `cookie` 字符串中。只复制值，不要带 `Cookie:` 标头名称，也不要复制响应中的 `Set-Cookie`。
+
+完整 Cookie 通常类似 `buvid3=...; SESSDATA=...; bili_jct=...; DedeUserID=...; ...`，字段顺序不限，无需手动拆分。必须包含 `SESSDATA`、`bili_jct`、`DedeUserID`，缺少时程序会指出字段名。Cookie 字符串不要换行；其中的双引号和反斜杠须按 JSON 规则分别写为 `\"` 和 `\\`。
+
+直接将 JSON 数组填入 Secret，不要加 `BILI_ACCOUNTS=`、代码框或外层单引号。Cookie 失效后更新同一个 Secret。
 
 | JSON 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `cookie` | 必填 | 当前账号的完整登录 Cookie |
+| `cookie` | 必填 | 粘贴当前账号的完整登录 Cookie，程序自动识别所需字段 |
 | `coinCount` | `1` | 每日投币目标，整数 `0`～`5`；`0` 为关闭，消耗账号的硬币余额 |
 | `reserveCoins` | `0` | 最低保留硬币数，达到余额下限时跳过投币 |
 | `coinSource` | `"dynamic"` | 优先选关注动态视频；`"ranking"` 为排行榜。动态没有可用视频时回退排行榜 |
