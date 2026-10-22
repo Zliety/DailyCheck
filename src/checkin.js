@@ -13,7 +13,10 @@ const { SignInClient, describeFailure } = require("./signin-client");
 
 sdkLogger.configure({ isDebugEnabled: false, consoleOutput: false });
 
-async function runTianyi(rawAccounts = process.env.TY_ACCOUNTS) {
+async function runTianyi(rawAccounts = process.env.TY_ACCOUNTS, {
+  createClient = (options) => new SignInClient(options),
+  tokenDirectory = path.resolve(__dirname, "..", ".token"),
+} = {}) {
   if (!rawAccounts) {
     throw new Error("缺少 TY_ACCOUNTS，请将天翼云盘账号配置为 JSON 数组。");
   }
@@ -40,10 +43,9 @@ async function runTianyi(rawAccounts = process.env.TY_ACCOUNTS) {
     throw new Error("TY_ACCOUNTS 必须是包含 userName 和 password 的非空 JSON 数组。");
   }
 
-  const tokenDirectory = path.resolve(__dirname, "..", ".token");
   await fs.mkdir(tokenDirectory, { recursive: true, mode: 0o700 });
 
-  let failed = false;
+  let failedAccounts = 0;
   const outcomes = [];
   for (const [index, account] of accounts.entries()) {
     const userName = account.userName.trim();
@@ -58,7 +60,7 @@ async function runTianyi(rawAccounts = process.env.TY_ACCOUNTS) {
         if (error.code !== "ENOENT") throw error;
       }
 
-      const client = new SignInClient({
+      const client = createClient({
         username: userName,
         password: account.password,
         token: new FileTokenStore(tokenPath),
@@ -73,24 +75,26 @@ async function runTianyi(rawAccounts = process.env.TY_ACCOUNTS) {
 
       if (result.isSign) {
         const message = `第 ${index + 1} 个账号：今天已经签到过。`;
-        outcomes.push(message);
+        outcomes.push(`\n账号 ${index + 1}｜✅ 无异常\n✅ 签到：今天已经签到过`);
         console.log(message);
       } else {
         const bonus = Number.isFinite(result.netdiskBonus)
           ? `，获得 ${result.netdiskBonus} MB 空间`
           : "";
         const message = `第 ${index + 1} 个账号：签到成功${bonus}。`;
-        outcomes.push(message);
+        outcomes.push(`\n账号 ${index + 1}｜✅ 无异常\n✅ 签到：成功${bonus}`);
         console.log(message);
       }
     } catch (error) {
-      failed = true;
-      outcomes.push(`第 ${index + 1} 个账号：${phase}失败。`);
-      console.error(`第 ${index + 1} 个账号${phase}失败（${describeFailure(error, accounts)}）。`);
+      failedAccounts++;
+      const reason = describeFailure(error, accounts);
+      outcomes.push(`\n账号 ${index + 1}｜❌ 执行失败\n❌ ${phase}：失败（${reason}）`);
+      console.error(`第 ${index + 1} 个账号${phase}失败（${reason}）。`);
     }
   }
 
-  return { failed, outcomes };
+  outcomes.unshift(`账号：${accounts.length} 个｜无异常：${accounts.length - failedAccounts} 个｜异常：${failedAccounts} 个`);
+  return { failed: failedAccounts > 0, outcomes };
 }
 
 module.exports = { runTianyi };
