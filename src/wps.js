@@ -90,8 +90,8 @@ function configure(account) {
     if (!Object.hasOwn(tasks, key) || typeof value !== "boolean") throw new WpsError("tasks 包含未知任务或非布尔开关");
     tasks[key] = value;
   }
-  const maxLottery = account.maxLottery ?? 2;
-  const maxTrials = account.maxTrials ?? 1;
+  const maxLottery = account.maxLottery === undefined ? 2 : account.maxLottery;
+  const maxTrials = account.maxTrials === undefined ? 1 : account.maxTrials;
   for (const [key, value] of Object.entries({ maxLottery, maxTrials })) {
     if (!Number.isInteger(value) || value < 0 || value > 10) throw new WpsError(`${key} 必须是 0～10 的整数`);
   }
@@ -116,7 +116,10 @@ function encryptSign(publicKeyBase64, userId) {
 function portalLink(portal) {
   return `${ACT}/rubik2/portal/${portal.activity_number}/${portal.page_number}?${new URLSearchParams(portal.filter_params)}`;
 }
-function count(value) { return Number.isSafeInteger(value) && value >= 0 ? value : 0; }
+function count(value) {
+  const number = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
+  return Number.isSafeInteger(number) && number >= 0 ? number : 0;
+}
 function dateInChina(value = Date.now()) { return new Date(value + 8 * 3600000).toISOString().slice(0, 10); }
 function signDate(item) {
   const time = Number(item.server_time);
@@ -135,7 +138,7 @@ class WpsClient {
     if (/ErrNotLogin|userNotLogin|未登录|请.*登录|Token.*过期/i.test(text)) throw new WpsError("登录已失效，请更新完整 Cookie", { auth: true });
     if (/^has sign$|已经签到|已签到|重复签到/i.test(text.trim())) throw new WpsError("今天已经签到过", { duplicate: true });
     if (/活动.*(?:结束|下线)|停止服务/.test(text)) throw new WpsError("活动已结束或下线", { unavailable: true });
-    const code = /^[\w-]{1,32}$/.test(String(result?.code ?? "")) ? `（代码 ${result.code}）` : "";
+    const code = /^-?\d{1,12}$/.test(String(result?.code ?? "")) ? `（代码 ${result.code}）` : "";
     throw new WpsError(`接口拒绝请求${code}`);
   }
 
@@ -178,7 +181,8 @@ class WpsClient {
         component_number: item.number, component_node_id: item.component_node_id, filter_params: emptyFilter ? {} : portal.filter_params },
       component_type: type, component_action: action, [action.split(".")[0]]: data,
     }, { Referer: portalLink(portal), "x-act-csrf-token": this.config.csrf });
-    const payload = result?.[action.split(".")[0]];
+    const payload = result?.[action.split(".")[0]] ||
+      (action === "fragment_collect.receive" ? result?.lottery_v2 : undefined);
     if (payload?.success !== true) {
       const reason = [payload?.reason, payload?.send_msg].filter(value => typeof value === "string").join(" ");
       if (/未登录|userNotLogin|Token.*过期/i.test(reason)) throw new WpsError("登录已失效，请更新完整 Cookie", { auth: true });
@@ -208,25 +212,23 @@ class WpsClient {
       { channel_code: "HYGW5004,GWHD5002", platform: 8, version: "", device: 1, hdid: "", filter_info: {} },
     ];
     let lastError;
-    let successful = 0;
     for (const channel of channels) {
       try {
         collect(await this.api("https://tiance.wps.cn/dce/exec/api/market/activity", channel));
-        successful++;
       } catch (error) { if (error.auth) throw error; lastError = error; }
     }
     const portal = candidates.find(item => item.filter_params.position === "pc_nvc_activity_fuli") ||
       candidates.find(item => /fuli/.test(item.filter_params.position || "")) ||
       candidates.find(item => ["福利中心", "天天领福利"].includes(item.title));
     if (!portal) {
-      if (!successful && lastError) throw lastError;
+      if (lastError) throw lastError;
       throw new WpsError("未找到福利中心活动入口", { unavailable: true });
     }
     return portal;
   }
 
   fragment(page) {
-    return page.find(item => item.type === 42 && Array.isArray(item.fragment_collect?.sign_records) && item.fragment_collect.sign_records.length);
+    return page.find(item => item.type === 42 && Array.isArray(item.fragment_collect?.sign_records));
   }
 
   async freeMember(portal) {
@@ -299,8 +301,9 @@ class WpsClient {
     const item = this.fragment(page);
     if (!item) return "跳过（未找到打卡活动）";
     const data = item.fragment_collect;
-    const isSeventhDay = page.some(item => item.type === 45 && item.lottery_v2?.lottery_list?.some(session => session.session_status === "IN_PROGRESS" && session.times === 7));
-    if (!isSeventhDay || !data.sign_series_id) return "跳过（未到七天奖励领取条件）";
+    const signedDays = new Set(data.sign_records.filter(record => record?.sign_status === "signed" &&
+      typeof record.sign_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(record.sign_date)).map(record => record.sign_date)).size;
+    if (signedDays < 7 || !data.sign_series_id) return "跳过（未到七天奖励领取条件）";
     const result = await this.action(portal, item, 42, "fragment_collect.receive", { series_id: data.sign_series_id });
     return `领取成功${result.reward_name ? `：${this.safeText(result.reward_name)}` : ""}`;
   }
@@ -316,16 +319,18 @@ class WpsClient {
     const lines = [];
     let failed = false;
     let expired = false;
-    const execute = async (label, work) => {
+    const execute = async (label, work, { quietSkip = false, allowUnavailable = true } = {}) => {
       if (expired) { lines.push(`⏭️ ${label}：跳过（登录已失效）`); return; }
       try {
         const message = await work();
+        if (quietSkip && message.startsWith("跳过")) return false;
         const icon = message.startsWith("跳过") ? "⏭️" : message.startsWith("已关闭") ? "⚪" : "✅";
         lines.push(`${icon} ${label}：${message}`);
       } catch (error) {
-        if (error.duplicate || error.unavailable) lines.push(`${error.duplicate ? "✅" : "⏭️"} ${label}：${describe(error)}`);
+        if (error.duplicate || (allowUnavailable && error.unavailable)) lines.push(`${error.duplicate ? "✅" : "⏭️"} ${label}：${describe(error)}`);
         else { failed = true; expired ||= Boolean(error.auth); lines.push(`❌ ${label}：失败（${describe(error)}）`); }
       }
+      return true;
     };
     let portalPromise;
     const portal = () => (portalPromise ||= this.discoverPortal());
@@ -338,11 +343,26 @@ class WpsClient {
       reward: async () => this.reward(await portal()),
     };
     const disabled = [];
-    for (const key of ["centerSign", "centerLottery", "freeMember", "memberTrial", "reward", "dailyLottery"]) {
+    let rewardReported = false;
+    let pendingRewardFailed = false;
+    for (const key of ["centerSign", "centerLottery", "freeMember", "memberTrial", "dailyLottery", "reward"]) {
+      // Claim a completed old series before a new check-in can reset it. If not
+      // ready yet, check again after today's tasks. Never repeat a claim after
+      // a success or uncertain failure in the same run.
+      if (key === "freeMember" && this.config.tasks.freeMember && this.config.tasks.reward && !expired) {
+        rewardReported = await execute(LABELS.reward, async () => {
+          try { return await work.reward(); }
+          catch (error) { pendingRewardFailed = !error.duplicate && !error.unavailable; throw error; }
+        }, { quietSkip: true });
+      }
+      if (key === "freeMember" && pendingRewardFailed && !expired) {
+        lines.push("⏭️ 打卡领会员：跳过（奖励领取状态未确认，保留当前打卡周期）");
+        continue;
+      }
       if (!this.config.tasks[key]) disabled.push(LABELS[key]);
-      else await execute(LABELS[key], work[key]);
+      else if (key !== "reward" || !rewardReported) await execute(LABELS[key], work[key], { allowUnavailable: key !== "centerSign" });
     }
-    await execute("账号积分", () => this.points());
+    await execute("账号积分", () => this.points(), { allowUnavailable: false });
     if (disabled.length) lines.push(`⚪ 未启用：${disabled.join("、")}`);
     return { failed, lines };
   }
@@ -360,8 +380,9 @@ async function runWps(raw, options = {}) {
     let result;
     try {
       const config = configure(account);
-      name = config.name;
-      result = await new WpsClient(config, options).run();
+      const client = new WpsClient(config, options);
+      name = client.safeText(config.name);
+      result = await client.run();
     } catch (error) { result = { failed: true, lines: [`❌ 执行：失败（${describe(error)}）`] }; }
     if (result.failed) failedAccounts++;
     outcomes.push(`\n账号 ${index + 1}${name ? `（${name}）` : ""}${result.failed ? "｜⚠️ 有失败任务" : ""}\n${result.lines.join("\n")}`);

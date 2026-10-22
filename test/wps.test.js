@@ -2,7 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { generateKeyPairSync, privateDecrypt, createDecipheriv, constants } = require("node:crypto");
-const { runWps, WpsClient, configure, encryptSign, signDate, requestJson } = require("../src/wps");
+const { runWps, WpsClient, WpsError, configure, encryptSign, signDate, requestJson } = require("../src/wps");
 const { main } = require("../src/main");
 
 const COOKIE = "uid=123456; wps_sid=private-session; act_csrf_token=private-csrf";
@@ -20,7 +20,8 @@ function backend(override = () => {}) {
     item(36, "points", { task_center_user_info: { integral: state.points, advent_integral: 10 } }),
     item(45, "center", { lottery_v2: { lottery_list: [{ session_status: "IN_PROGRESS", stock_status: "IN_STOCK", times: 3 - state.centerDraws, session_id: "center-session" }] } }),
   ] : [
-    item(42, "member", { server_time: 1792684800, fragment_collect: { sign_series_id: "series", sign_records: [
+    item(42, "member", { server_time: 1792684800, fragment_collect: { sign_series_id: state.received ? "" : "series", sign_records: [
+      ...Array.from({ length: 6 }, (_, index) => ({ sign_date: `2026-10-${17 + index}`, sign_status: "signed" })),
       { sign_date: "2026-10-23", sign_status: state.signed ? "signed" : "unsigned" },
     ] } }),
     item(32, "trial", { divide_prize: { remain_times: 1, join_reach_limit: false, divide_prize_details: [
@@ -89,7 +90,7 @@ test("WPS 六项任务、积分查询与请求上下文，抽奖和申请严格�
   assert.deepEqual(decryptSign(sign.body, sign.headers.token), { user_id: 123456, platform: 64 });
   assert.equal(sign.body.pay_origin, "pc_ucs_rwzx_sign");
   const mutations = b.calls.filter(call => call.path.endsWith("/component_action"));
-  assert.ok(mutations.findIndex(call => call.body.component_action === "fragment_collect.receive") <
+  assert.ok(mutations.findIndex(call => call.body.component_action === "fragment_collect.receive") >
     mutations.findIndex(call => call.body.lottery_v2?.session_id === "daily-session"));
   for (const call of mutations) {
     assert.match(call.headers.Referer, /^https:\/\/personal-act.wps.cn\/rubik2\/portal\//);
@@ -105,7 +106,7 @@ test("WPS 六项任务、积分查询与请求上下文，抽奖和申请严格�
 
 test("已签到、已申请、无次数及任务关闭不重复提交", async () => {
   const b = backend((call, state) => {
-    state.signed = true; state.joined = true; state.centerDraws = 3; state.dailyDraws = 7;
+    state.signed = true; state.received = true; state.joined = true; state.centerDraws = 3; state.dailyDraws = 7;
     if (call.path.endsWith("/sign_in")) return { result: "error", msg: "has sign" };
   });
   const result = await runWps(JSON.stringify([{ cookie: COOKIE }]), b);
@@ -260,4 +261,104 @@ test("原生 WPS 请求保留完整 Cookie、JSON 请求体及 CSRF，禁用重�
   assert.deepEqual(JSON.parse(calls[0].body), { test: "值" });
   await assert.rejects(requestJson("https://example.com", config), /非 WPS/);
   assert.equal(calls.length, 1);
+});
+
+
+test("七天奖励按去重的实际签到记录判断，与抽奖剩余次数无关", async () => {
+  for (const [signedDays, times, expectedClaims] of [[1, 7, 0], [6, 7, 0], [7, 0, 1], [7, 2, 1]]) {
+    const b = backend(call => {
+      if (call.path.endsWith("/page_info") && new URL(call.url).searchParams.get("activity_number") === "HDtest") {
+        return ok([
+          { type: 42, number: "member", component_node_id: "node", fragment_collect: { sign_series_id: "series", sign_records:
+            Array.from({ length: signedDays }, (_, i) => ({ sign_date: `2026-10-${17 + i}`, sign_status: "signed" })) } },
+          { type: 45, lottery_v2: { lottery_list: [{ session_status: "IN_PROGRESS", times }] } },
+        ]);
+      }
+    });
+    const result = await runWps(JSON.stringify([{ cookie: COOKIE, tasks: { ...tasksOff, reward: true } }]), b);
+    assert.equal(result.failed, false);
+    assert.equal(b.calls.filter(call => call.body?.component_action === "fragment_collect.receive").length, expectedClaims);
+  }
+});
+
+test("旧周期奖励先领取，随后开启新打卡；同一轮只领取一次", async () => {
+  const b = backend(call => {
+    if (call.path.endsWith("/page_info") && new URL(call.url).searchParams.get("activity_number") === "HDtest") {
+      return ok([{ type: 42, number: "member", component_node_id: "node", server_time: 1792684800,
+        fragment_collect: { sign_series_id: b.state.received ? "" : "old-series", sign_records: b.state.received ? [] :
+          Array.from({ length: 7 }, (_, i) => ({ sign_date: `2026-10-${16 + i}`, sign_status: "signed" })) } }]);
+    }
+  });
+  const result = await runWps(JSON.stringify([{ cookie: COOKIE, tasks: { ...tasksOff, freeMember: true, reward: true } }]), b);
+  assert.equal(result.failed, false);
+  const actions = b.calls.filter(call => call.body?.component_action).map(call => call.body.component_action);
+  assert.deepEqual(actions, ["fragment_collect.receive", "fragment_collect.sign_in"]);
+  assert.equal((result.outcomes[1].match(/七天奖励：/g) || []).length, 1);
+});
+
+test("七天奖励领取超时后不重复提交，仍保留失败状态", async () => {
+  const b = backend(call => {
+    if (call.body?.component_action === "fragment_collect.receive") throw Object.assign(new Error(COOKIE), { code: "ETIMEDOUT" });
+  });
+  b.state.signed = true;
+  const result = await runWps(JSON.stringify([{ cookie: COOKIE }]), b);
+  assert.equal(result.failed, true);
+  assert.equal(b.calls.filter(call => call.body?.component_action === "fragment_collect.receive").length, 1);
+  assert.match(result.outcomes[1], /七天奖励：失败.*ETIMEDOUT/);
+  assert.match(result.outcomes[1], /保留当前打卡周期/);
+  assert.ok(!b.calls.some(call => call.body?.component_action === "fragment_collect.sign_in"));
+});
+
+test("次数与库存的数字字符串正常处理，null 上限拒绝执行", async () => {
+  const b = backend();
+  const request = b.request;
+  b.request = async (...args) => {
+    const response = await request(...args);
+    if (Array.isArray(response.data)) for (const item of response.data) {
+      if (item.divide_prize) {
+        item.divide_prize.remain_times = "1";
+        for (const detail of item.divide_prize.divide_prize_details) detail.stock = "5";
+      }
+      if (item.lottery_v2) for (const session of item.lottery_v2.lottery_list) session.times = String(session.times);
+    }
+    return response;
+  };
+  const result = await runWps(JSON.stringify([{ cookie: COOKIE, maxLottery: 1 }]), b);
+  assert.equal(result.failed, false);
+  assert.equal(b.state.centerDraws, 1); assert.equal(b.state.dailyDraws, 1); assert.equal(b.state.joined, true);
+  assert.throws(() => configure({ cookie: COOKIE, maxLottery: null }), /maxLottery/);
+  assert.throws(() => configure({ cookie: COOKIE, maxTrials: null }), /maxTrials/);
+});
+
+test("积分查询和核心签到接口不存在时报告失败，不作为活动下线跳过", async () => {
+  for (const route of ["/encrypt/key", "/page_info"]) {
+    const b = backend(call => {
+      if (call.path.endsWith(route)) throw new WpsError("接口返回 HTTP 404", { unavailable: true });
+    });
+    const result = await runWps(JSON.stringify([{ cookie: COOKIE, tasks: { ...tasksOff, centerSign: true } }]), b);
+    assert.equal(result.failed, true);
+    assert.match(result.outcomes[1], route === "/page_info" ? /❌ 账号积分：失败/ : /❌ 任务中心签到：失败/);
+  }
+});
+
+test("未知字母错误码不会泄露凭据，领奖接口兼容 lottery_v2 结果", async () => {
+  const client = new WpsClient(configure({ cookie: COOKIE }), { wait: noWait,
+    request: async () => ({ result: "error", code: "private-session", msg: COOKIE }) });
+  await assert.rejects(client.sign(), error => !error.message.includes("private-session"));
+  const b = backend(call => call.body?.component_action === "fragment_collect.receive"
+    ? ok({ lottery_v2: { success: true, reward_name: "七天会员" } }) : undefined);
+  const result = await runWps(JSON.stringify([{ cookie: COOKIE }]), b);
+  assert.equal(result.failed, false);
+  assert.match(result.outcomes[1], /七天奖励：领取成功：七天会员/);
+});
+
+
+test("部分入口查询失败且未找到活动时报告失败，不能假定活动不存在", async () => {
+  const b = backend(call => {
+    if (call.body?.channel_code === "AUTOPCHYZXYYHD3737") return ok({});
+    if (call.body?.channel_code === "HYGW5004,GWHD5002") throw Object.assign(new Error(COOKIE), { code: "ETIMEDOUT" });
+  });
+  const result = await runWps(JSON.stringify([{ cookie: COOKIE, tasks: { ...tasksOff, freeMember: true } }]), b);
+  assert.equal(result.failed, true);
+  assert.match(result.outcomes[1], /❌ 打卡领会员：失败.*ETIMEDOUT/);
 });

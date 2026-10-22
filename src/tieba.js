@@ -100,7 +100,7 @@ class TiebaClient {
   async login() {
     const result = await this.request(`${BASE}/dc/common/tbs`, this.config);
     if (![1, "1"].includes(result?.is_login)) throw new TiebaError("登录未成功，Cookie 或 BDUSS 可能已失效", { auth: true });
-    if (typeof result.tbs !== "string" || !result.tbs || /[\r\n]/.test(result.tbs)) throw new TiebaError("未获取到有效 TBS，已停止签到");
+    if (typeof result.tbs !== "string" || !result.tbs.trim() || /\s/.test(result.tbs)) throw new TiebaError("未获取到有效 TBS，已停止签到");
     this.config.secrets.push(result.tbs);
     return result.tbs;
   }
@@ -122,6 +122,10 @@ class TiebaClient {
       this.checkError(result);
       if (!result?.forum_list || typeof result.forum_list !== "object" || Array.isArray(result.forum_list)) {
         throw new TiebaError("关注列表返回格式异常，未执行签到");
+      }
+      if (Object.keys(result.forum_list).length &&
+          !Object.hasOwn(result.forum_list, "non-gconforum") && !Object.hasOwn(result.forum_list, "gconforum")) {
+        throw new TiebaError("关注列表类型无法识别，未执行签到");
       }
       const previous = forums.size;
       for (const key of ["non-gconforum", "gconforum"]) {

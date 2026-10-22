@@ -81,6 +81,7 @@ test("分页失败、异常响应或重复页均报告失败，不签到或伪�
     { error_code: "0", has_more: "0", forum_list: { gconforum: [{ id: "", name: "invalid" }] } },
     { error_code: "0", has_more: "1", forum_list: { gconforum: [{ id: "101", name: "重复吧" }] } },
     { error_code: "0", forum_list: {} },
+    { error_code: "0", has_more: "0", forum_list: { unexpected: [{ id: "101", name: "未识别列表" }] } },
   ]) {
     const b = backend(call => call.path.endsWith("/like") ? response : undefined);
     const result = await runTieba(JSON.stringify([{ cookie: COOKIE }]), b);
@@ -210,4 +211,15 @@ test("原生请求仅使用百度 HTTPS，完整 Cookie 与表单编码正确，
   status = 302;
   await assert.rejects(requestJson("https://tieba.baidu.com/dc/common/tbs", config), /HTTP 302/);
   assert.equal(calls.length, 2);
+});
+
+
+test("空白或带空白的 TBS 不发起后续请求", async () => {
+  for (const tbs of [" ", "abc def", "\t", "abc\n"]) {
+    const b = backend(() => ({ is_login: 1, tbs }));
+    const result = await runTieba(JSON.stringify([{ cookie: COOKIE }]), b);
+    assert.equal(result.failed, true);
+    assert.equal(b.calls.length, 1);
+    assert.match(result.outcomes[1], /未获取到有效 TBS/);
+  }
 });
