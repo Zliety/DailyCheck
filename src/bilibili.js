@@ -95,8 +95,41 @@ function parseAccounts(raw) {
     try {
       // A Cookie can precede any JSON field, including a user's account label.
       // Never consume a subsequent configuration field as part of the Cookie.
-      const pattern = /"cookie"\s*:\s*"([\s\S]*?)"(?=\s*(?:,\s*(?:"[^"\r\n]+"\s*:|[}\]])|}\s*(?:,|\])))/g;
-      const repaired = source.replace(pattern, (match, value) => {
+      const starts = /"cookie"\s*:\s*"/g;
+      let repaired = "";
+      let cursor = 0;
+      let start;
+      while ((start = starts.exec(source))) {
+        const valueStart = starts.lastIndex;
+        const endings = /"(?=\s*(?:,\s*(?:"[^"\r\n]+"\s*:|[}\]])|}\s*(?:,\s*(?:\{|\])|\])))/g;
+        endings.lastIndex = valueStart;
+        let ending;
+        let value;
+        while ((ending = endings.exec(source))) {
+          value = source.slice(valueStart, ending.index);
+          try {
+            JSON.parse(`"${value}"`);
+            break; // Already escaped JSON strings have an unambiguous boundary.
+          } catch { /* Inspect a raw pasted Cookie below. */ }
+          // Browser cookies may embed JSON objects/arrays. A quote inside
+          // one of those values cannot terminate the outer Cookie string.
+          const stack = [];
+          let quoted = false;
+          for (let i = 0; i < value.length; i++) {
+            const char = value[i];
+            if (quoted && char === "\\") { i++; continue; }
+            if (stack.length && char === '"') { quoted = !quoted; continue; }
+            if (quoted) continue;
+            if (char === "{" || char === "[") stack.push(char);
+            else if (char === "}" || char === "]") {
+              if (stack.pop() !== (char === "}" ? "{" : "[")) {
+                throw new Error("ambiguous cookie boundary");
+              }
+            }
+          }
+          if (!stack.length && !quoted) break;
+        }
+        if (!ending) throw new Error("missing cookie boundary");
         if (/[\r\n]/.test(value) || /"(?:cookie|coinCount|reserveCoins|coinSource|videoIds|likeOnCoin|tasks)"\s*:/.test(value)) {
           throw new Error("ambiguous cookie boundary");
         }
@@ -112,8 +145,11 @@ function parseAccounts(raw) {
             } else escaped += "\\\\";
           } else escaped += char === '"' ? '\\"' : char;
         }
-        return `"cookie":${JSON.stringify(JSON.parse(`"${escaped}"`))}`;
-      });
+        repaired += source.slice(cursor, start.index) + `"cookie":${JSON.stringify(JSON.parse(`"${escaped}"`))}`;
+        cursor = ending.index + 1;
+        starts.lastIndex = cursor;
+      }
+      repaired += source.slice(cursor);
       accounts = JSON.parse(removeTrailingCommas(repaired));
     } catch (error) {
       // Only expose position numbers, never JSON.parse's source excerpt.

@@ -60,6 +60,22 @@ test("格式错误只输出位置和建议，不泄露 Secret 内容", () => {
   });
 });
 
+test("Cookie 内嵌多层 JSON 和字符串数组不会被截断，多账号设置保持独立", () => {
+  const embedded = 'bmg_af_sc={"none":{"on":1,"def":"i1.hdslb.com"},"sgp":{"on":1,"def":"i1-sgp.hdslb.com"}}; extra={"a":"x","b":"y"}; list=["a","b"]; tail=ok';
+  const cookie = COOKIE + '; ' + embedded;
+  const mixed = parseAccounts('[' + JSON.stringify({ cookie, coinCount: 3 }) + ',{"cookie":"' + cookie + '","coinCount":0}]');
+  assert.equal(mixed[0].cookie, cookie);
+  assert.equal(mixed[0].coinCount, 3);
+  for (const suffix of ['', ',"coinCount":0,"tasks":{"coin":false}', ',"name":"备注","coinCount":2']) {
+    const accounts = parseAccounts('[{"cookie":"' + cookie + '"' + suffix + '},{"cookie":"' + cookie + '","coinCount":0}]');
+    assert.equal(accounts.length, 2);
+    assert.equal(accounts[0].cookie, cookie);
+    assert.equal(accounts[1].cookie, cookie);
+    assert.equal(accounts[1].coinCount, 0);
+    assert.equal(accounts[0].coinCount, suffix.includes('coinCount":2') ? 2 : suffix ? 0 : undefined);
+  }
+});
+
 function backend(override) {
   const calls = [];
   const donated = new Set();
