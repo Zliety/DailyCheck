@@ -1,6 +1,6 @@
 # DailyCheck
 
-天翼云盘个人签到、B 站每日任务和 WPS 签到脚本，支持多账号，在同一个 GitHub Actions 工作流中执行，并将结果合并推送。
+天翼云盘个人签到、B 站每日任务、WPS 和百度贴吧签到脚本，支持多账号，在同一个 GitHub Actions 工作流中执行，并将结果合并推送。
 
 ## 通用说明
 
@@ -10,15 +10,16 @@
 
 1. 打开仓库 **Settings → Secrets and variables → Actions**，按需在 **Repository secrets** 中添加下列配置，具体格式见对应的平台章节。
 2. 如需通知，在同一页面添加通知渠道的凭据。
-3. 打开仓库 **Actions** 页面，选择“每日签到（天翼云盘、B站和WPS）”，点击 **Run workflow** 手动执行一次。
+3. 打开仓库 **Actions** 页面，选择“每日签到（天翼云盘、B站、WPS和百度贴吧）”，点击 **Run workflow** 手动执行一次。
 
 | 平台 | Repository Secret | 配置说明 |
 | --- | --- | --- |
 | 天翼云盘 | `TY_ACCOUNTS` | [天翼云盘配置](#天翼云盘) |
 | B 站 | `BILI_ACCOUNTS` | [B 站配置](#b-站) |
 | WPS | `WPS_ACCOUNTS` | [WPS 配置](#wps) |
+| 百度贴吧 | `TIEBA_ACCOUNTS` | [百度贴吧配置](#百度贴吧) |
 
-三个平台可以按需启用一个或多个。每个平台的全部账号放在对应 Secret 的一个 JSON 数组中；单账号也使用数组。将 JSON 直接填入 Secret，不要附加变量名、等号、代码框或外层单引号。请勿把真实账号密码、Cookie 或令牌写入仓库文件。
+四个平台可以按需启用一个或多个。未配置某个平台的账号 Secret 时自动跳过，不影响其他平台。每个平台的全部账号放在对应 Secret 的一个 JSON 数组中；单账号也使用数组。将 JSON 直接填入 Secret，不要附加变量名、等号、代码框或外层单引号。请勿把真实账号密码、Cookie 或令牌写入仓库文件。
 
 各平台独立执行，一个平台失败后会继续其他平台。执行结束后统一推送结果；有任务或通知失败时，最终工作流会显示失败状态。
 
@@ -249,9 +250,52 @@ $env:WPS_ACCOUNTS = '[{"name":"我的WPS","cookie":"uid=123456; wps_sid=你的�
 
 将示例替换为对应账号的完整 Cookie，再按前面的本地运行说明执行 `npm start`。
 
+## 百度贴吧
+
+### 账号配置
+
+签到接口参考 [LuoSue/TiebaSignIn-1](https://github.com/LuoSue/TiebaSignIn-1)，多账号及昵称处理参考 [Sitoi/dailycheckin](https://github.com/Sitoi/dailycheckin/tree/main/dailycheckin/tieba)，使用 Node.js 实现。自动获取账号关注的贴吧，逐个执行签到。
+
+在 **Repository secrets** 中新增 **`TIEBA_ACCOUNTS`**，将全部账号放在同一个 JSON 数组中。可以粘贴完整 Cookie，也可以只填写 BDUSS：
+
+```json
+[
+  {"cookie": "BDUSS=账号1的登录凭据; 其他Cookie字段=原有值"},
+  {"bduss": "账号2的BDUSS值", "name": "备用账号"}
+]
+```
+
+| JSON 字段 | 说明 |
+| --- | --- |
+| `cookie` | 完整 Cookie，自动识别 `BDUSS`；保留其他原有 Cookie 字段 |
+| `bduss` | 只填写 BDUSS 的值，与 `cookie` 二选一；两者都填写时必须一致 |
+| `name` | 可选备注；优先显示接口返回的昵称，昵称不可用时显示备注 |
+
+获取凭据：在浏览器登录 [百度贴吧](https://tieba.baidu.com/)，按 `F12` 打开开发者工具。在 **Network（网络）** 中选中贴吧的已登录请求，复制 **Request Headers（请求标头）** 中完整的 Cookie 值；或者在 **Application → Cookies** 中复制 `BDUSS` 的值。
+
+账号标题显示为 `账号 1（贴吧昵称）`，账号汇总沿用“账号 / 无异常 / 异常”统计。每个账号会展示关注贴吧总数、成功数、已签到数、屏蔽数和失败数，并逐行显示各贴吧的结果。屏蔽的贴吧标记跳过；已签到视为正常。没有关注贴吧时明确标记跳过，列表读取失败则报告失败。
+
+账号间沿用 **5～15 秒** 随机间隔；每个账号内的贴吧之间随机等待 **1～3 秒**，每处理 10 个贴吧额外等待 **5～10 秒**。签到提交超时不会自动重试，一个贴吧失败后继续其他贴吧；接口明确提示登录失效时停止本账号的剩余请求。
+
+### 本地配置
+
+Linux / macOS（Bash、Zsh）：
+
+```sh
+export TIEBA_ACCOUNTS='[{"cookie":"BDUSS=账号1的登录凭据"},{"bduss":"账号2的BDUSS值","name":"备用账号"}]'
+```
+
+Windows PowerShell：
+
+```powershell
+$env:TIEBA_ACCOUNTS = '[{"cookie":"BDUSS=账号1的登录凭据"},{"bduss":"账号2的BDUSS值","name":"备用账号"}]'
+```
+
+替换为各账号的真实凭据，再按前面的本地运行说明执行 `npm start`。结果与其他已启用平台合并推送。
+
 ## 免责声明
 
-本项目仅供个人学习和技术交流使用，与天翼云盘、哔哩哔哩、WPS 及其运营方无隶属或合作关系。
+本项目仅供个人学习和技术交流使用，与天翼云盘、哔哩哔哩、WPS、百度贴吧及其运营方无隶属或合作关系。
 
 请仅使用本人拥有或已获授权的账号，并遵守相关法律法规及各平台的用户协议、活动规则。请妥善保管账号密码、Cookie 和令牌，不要将其公开或提交到仓库。
 

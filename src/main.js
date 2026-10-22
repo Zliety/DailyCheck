@@ -5,16 +5,18 @@ const { waitRandom } = require("./interval");
 const { runTianyi } = require("./checkin");
 const { runBilibili } = require("./bilibili");
 const { runWps } = require("./wps");
+const { runTieba } = require("./tieba");
 const { sendNotifications } = require("./notifications");
 
-async function main({ env = process.env, tianyi = runTianyi, bilibili = runBilibili, wps = runWps, wait, notify = sendNotifications } = {}) {
+async function main({ env = process.env, tianyi = runTianyi, bilibili = runBilibili, wps = runWps, tieba = runTieba, wait, notify = sendNotifications } = {}) {
   const platforms = [
     ["天翼云盘", env.TY_ACCOUNTS, tianyi],
     ["B站", env.BILI_ACCOUNTS, bilibili],
     ["WPS", env.WPS_ACCOUNTS, wps],
+    ["百度贴吧", env.TIEBA_ACCOUNTS, tieba],
   ].filter(([, config]) => config);
   if (!platforms.length) {
-    console.error("请至少配置 TY_ACCOUNTS、BILI_ACCOUNTS 或 WPS_ACCOUNTS 中的一项。");
+    console.error("请至少配置 TY_ACCOUNTS、BILI_ACCOUNTS、WPS_ACCOUNTS 或 TIEBA_ACCOUNTS 中的一项。");
     return 2;
   }
   let failed = false;
@@ -29,7 +31,7 @@ async function main({ env = process.env, tianyi = runTianyi, bilibili = runBilib
     } catch (error) {
       failed = true;
       // Never print arbitrary SDK errors, which may contain account credentials.
-      const message = /^(TY_ACCOUNTS|BILI_ACCOUNTS|WPS_ACCOUNTS)/.test(error.message || "")
+      const message = /^(TY_ACCOUNTS|BILI_ACCOUNTS|WPS_ACCOUNTS|TIEBA_ACCOUNTS)/.test(error.message || "")
         ? error.message : "执行异常，请查看对应平台日志。";
       console.error(`${name}：${message}`);
       sections.push(`【${name}】\n${message}`);
