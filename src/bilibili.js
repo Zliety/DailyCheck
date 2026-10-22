@@ -239,13 +239,33 @@ class BilibiliClient {
         } else { failed = true; outcomes.push(`${label}：失败（${describe(error)}）`); }
       }
     }
-    return { failed, outcomes };
+    let snapshot = user;
+    let refreshed = false;
+    try {
+      const latest = await this.api("https://api.bilibili.com/x/web-interface/nav");
+      if (latest?.isLogin) { snapshot = latest; refreshed = true; }
+    } catch {
+      // Reporting failure must not discard task results or pretend stale data is current.
+    }
+    return { failed, outcomes, accountInfo: formatAccountInfo(snapshot, refreshed) };
   }
 }
 
-function formatAccount(index, lines, failed, fatal) {
+function formatAccountInfo(user, refreshed) {
+  const info = user.level_info || {};
+  const level = Number.isInteger(info.current_level) && info.current_level >= 0 ? info.current_level : undefined;
+  const current = Number.isFinite(info.current_exp) && info.current_exp >= 0 ? info.current_exp : undefined;
+  const next = Number.isFinite(info.next_exp) && info.next_exp > 0 ? info.next_exp : undefined;
+  const experience = current === undefined ? "未获取" : level === 6 ? `${current}（已满级）` :
+    next === undefined ? `${current}` : `${current}/${next}`;
+  const coins = Number.isFinite(user.money) && user.money >= 0 ? user.money : "未获取";
+  return `等级 ${level === undefined ? "未获取" : `Lv.${level}`}｜经验 ${experience}｜硬币 ${coins}${refreshed ? "" : "（任务前快照，刷新失败）"}`;
+}
+
+function formatAccount(index, lines, failed, fatal, accountInfo) {
   const status = fatal ? "❌ 执行失败" : failed ? "⚠️ 有失败任务" : "";
   const output = [`账号 ${index + 1}${status ? `｜${status}` : ""}`];
+  if (accountInfo) output.push(accountInfo);
   const disabled = [];
   for (const line of lines) {
     const closed = line.match(/^(.+?)：已关闭/);
@@ -265,13 +285,16 @@ async function runBilibili(raw, { request = requestJson } = {}) {
     let lines;
     let failed = false;
     let fatal = false;
+    let accountInfo;
     try {
       const result = await new BilibiliClient(configure(account), request).run();
       failed = result.failed;
       lines = result.outcomes;
+      accountInfo = result.accountInfo;
     } catch (error) { failed = true; fatal = true; lines = [`执行：失败（${describe(error)}）`]; }
     if (failed) failedAccounts++;
-    outcomes.push(`\n${formatAccount(index, lines, failed, fatal)}`);
+    outcomes.push(`\n${formatAccount(index, lines, failed, fatal, accountInfo)}`);
+    if (accountInfo) console.log(`B站 第 ${index + 1} 个账号 ${accountInfo}`);
     for (const line of lines) console.log(`B站 第 ${index + 1} 个账号 ${line}`);
   }
   outcomes.unshift(`账号：${accounts.length} 个${failedAccounts ? `｜异常：${failedAccounts} 个` : ""}`);

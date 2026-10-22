@@ -213,3 +213,36 @@ test("原生 HTTPS 请求保留完整 Cookie 并发送匹配的 Origin 和 Refer
   assert.equal(new URLSearchParams(requests[0].body).get("aid"), "100");
   assert.deepEqual(configure({ cookie: fullCookie }).missingDeviceCookies, []);
 });
+
+test("推送在账号标题下展示任务后的等级经验与硬币余额", async () => {
+  let navCalls = 0;
+  const b = backend(({ path }) => {
+    if (path.endsWith("/nav")) {
+      navCalls++;
+      return { code: 0, data: { isLogin: true, money: navCalls === 1 ? 10.5 : 9.5,
+        level_info: { current_level: 5, current_exp: navCalls === 1 ? 23000 : 23010, next_exp: 28800 } } };
+    }
+  });
+  const result = await runBilibili(JSON.stringify([{ cookie: COOKIE, coinCount: 1, videoIds: VIDEOS }]), { request: b.request });
+  assert.equal(result.failed, false);
+  assert.equal(navCalls, 2);
+  assert.match(result.outcomes[1], /^\n账号 1\n等级 Lv\.5｜经验 23010\/28800｜硬币 9\.5\n/);
+  assert.ok(!result.outcomes[1].includes("硬币 10.5"));
+  assert.ok(!result.outcomes[1].includes("test-secret"));
+});
+
+test("刷新失败保留任务结果并标注旧快照，满级不展示无效升级目标", async () => {
+  let navCalls = 0;
+  const b = backend(({ path }) => {
+    if (path.endsWith("/nav")) {
+      if (++navCalls > 1) throw new Error(`network failure ${COOKIE}`);
+      return { code: 0, data: { isLogin: true, money: 12.5,
+        level_info: { current_level: 6, current_exp: 30000, next_exp: "--" } } };
+    }
+  });
+  const result = await new BilibiliClient(configure({ cookie: COOKIE, coinCount: 0, videoIds: VIDEOS }), b.request).run();
+  assert.equal(result.failed, false);
+  assert.match(result.accountInfo, /等级 Lv\.6｜经验 30000（已满级）｜硬币 12\.5（任务前快照，刷新失败）/);
+  assert.ok(!result.accountInfo.includes("--") && !result.accountInfo.includes("test-secret"));
+  assert.match(result.outcomes.join("\n"), /漫画签到：成功/);
+});
