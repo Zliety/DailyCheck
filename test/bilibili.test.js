@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { runBilibili, configure, BilibiliClient } = require("../src/bilibili");
+const { runBilibili, configure, BilibiliClient, requestJson } = require("../src/bilibili");
 const { main } = require("../src/main");
 
 const COOKIE = "SESSDATA=test-secret; bili_jct=test-csrf; DedeUserID=123";
@@ -12,13 +12,17 @@ function backend(override) {
   const calls = [];
   const donated = new Set();
   let exp = 0;
-  const request = async (url, cookie, form) => {
+  const request = async (url, cookie, form, context) => {
     const path = new URL(url).pathname;
-    calls.push({ path, url, cookie, form });
-    const custom = await override?.({ path, url, cookie, form });
+    calls.push({ path, url, cookie, form, context });
+    const custom = await override?.({ path, url, cookie, form, context });
     if (custom !== undefined) return custom;
     let data = null;
     if (path.endsWith("/nav")) data = { isLogin: true, money: 10 };
+    else if (path.endsWith("/view")) {
+      const bvid = new URL(url).searchParams.get("bvid");
+      data = { aid: VIDEOS.indexOf(bvid) + 100, bvid, cid: 1000 };
+    }
     else if (path.endsWith("/today/exp")) data = exp;
     else if (path.endsWith("/archive/coins")) data = { multiply: donated.has(new URL(url).searchParams.get("bvid")) ? 1 : 0 };
     else if (path.endsWith("/coin/add")) { donated.add(form.bvid); exp += 10; }
@@ -138,4 +142,74 @@ test("两个平台独立执行，只统一推送一次；单平台配置也可�
   assert.equal(await main({ env: { BILI_ACCOUNTS: "[]" },
     tianyi: async () => assert.fail(), bilibili: async () => ({ failed: false, outcomes: ["成功"] }),
     notify: async () => false }), 0);
+});
+
+test("分享和投币携带校验后的 aid 与视频页上下文，元数据只查询一次", async () => {
+  const b = backend(({ path, form, context }) => {
+    if (path.endsWith("/share/add") || path.endsWith("/coin/add")) {
+      if (!form.aid || context?.referer !== `https://www.bilibili.com/video/${form.bvid}/`) {
+        return { code: path.endsWith("/share/add") ? -403 : -401 };
+      }
+    }
+  });
+  const result = await new BilibiliClient(configure({ cookie: COOKIE, videoIds: [VIDEOS[0]] }), b.request).run();
+  assert.equal(result.failed, false);
+  assert.equal(b.donated.size, 1);
+  assert.equal(b.calls.filter((call) => call.path.endsWith("/view")).length, 1);
+  const status = b.calls.find((call) => call.path.endsWith("/archive/coins"));
+  assert.equal(new URL(status.url).searchParams.get("aid"), "100");
+  assert.equal(status.context.referer, `https://www.bilibili.com/video/${VIDEOS[0]}/`);
+});
+
+test("查询投币状态被拒绝时不提交，投币被拒绝时只提交一次", async () => {
+  for (const rejected of ["/archive/coins", "/coin/add"]) {
+    const b = backend(({ path }) => path.endsWith(rejected) ? { code: -401, message: COOKIE } : undefined);
+    const result = await new BilibiliClient(configure({ cookie: COOKIE, videoIds: VIDEOS }), b.request).run();
+    assert.equal(result.failed, true);
+    assert.equal(b.calls.filter((call) => call.path.endsWith("/coin/add")).length, rejected === "/coin/add" ? 1 : 0);
+    const text = result.outcomes.join("\n");
+    assert.match(text, rejected === "/coin/add" ? /提交投币失败/ : /查询视频投币状态失败/);
+    assert.match(text, /缺少设备字段 buvid3、buvid4、b_nut、_uuid/);
+    assert.ok(!text.includes("test-secret") && !text.includes("test-csrf"));
+    assert.match(text, /漫画签到：成功/);
+  }
+});
+
+test("视频 aid 无效或不匹配时不发出分享与投币请求", async () => {
+  for (const data of [{ aid: 0 }, { aid: 100, bvid: VIDEOS[1] }]) {
+    const b = backend(({ path }) => path.endsWith("/view") ? { code: 0, data } : undefined);
+    const result = await new BilibiliClient(configure({ cookie: COOKIE, videoIds: [VIDEOS[0]] }), b.request).run();
+    assert.equal(result.failed, true);
+    assert.ok(!b.calls.some((call) => call.path.endsWith("/share/add") || call.path.endsWith("/coin/add")));
+  }
+});
+
+test("原生 HTTPS 请求保留完整 Cookie 并发送匹配的 Origin 和 Referer", async (t) => {
+  const https = require("node:https");
+  const { EventEmitter } = require("node:events");
+  const { Readable } = require("node:stream");
+  const requests = [];
+  t.mock.method(https, "request", (url, options, callback) => {
+    const request = new EventEmitter();
+    request.end = (body) => {
+      requests.push({ url, options, body });
+      process.nextTick(() => {
+        const response = Readable.from([Buffer.from('{"code":0,"data":{}}')]);
+        response.statusCode = 200;
+        callback(response);
+      });
+    };
+    return request;
+  });
+  const fullCookie = `${COOKIE}; buvid3=browser3; buvid4=browser4; b_nut=123; _uuid=browser-uuid`;
+  const referer = `https://www.bilibili.com/video/${VIDEOS[0]}/`;
+  await requestJson("https://api.bilibili.com/x/web-interface/coin/add", fullCookie,
+    { aid: "100", csrf: "test-csrf", multiply: "1" }, { referer });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].options.headers.Cookie, fullCookie);
+  assert.equal(requests[0].options.headers.Origin, "https://www.bilibili.com");
+  assert.equal(requests[0].options.headers.Referer, referer);
+  assert.equal(requests[0].options.family, 4);
+  assert.equal(new URLSearchParams(requests[0].body).get("aid"), "100");
+  assert.deepEqual(configure({ cookie: fullCookie }).missingDeviceCookies, []);
 });

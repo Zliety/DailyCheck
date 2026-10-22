@@ -143,6 +143,8 @@ B 站任务流程参考 [dangks/bilibili_checkin](https://github.com/dangks/bili
 
 Cookie 失效后，在同一个 `BILI_ACCOUNTS` Secret 中更新对应账号的完整 Cookie。
 
+分享、投币还可能校验浏览器设备信息。请保留完整 Cookie 中已有的 `buvid3`、`buvid4`、`b_nut`、`_uuid` 等字段，程序会自动读取，无需新增 Secret，也不会生成或替换这些设备字段。登录成功仍可能遇到分享、投币被安全策略拒绝；程序会显示缺失字段名或运行节点检查提示，且不会自动重试投币请求。
+
 | JSON 字段 | 默认值 | 说明 |
 | --- | --- | --- |
 | `cookie` | 必填 | 粘贴当前账号的完整登录 Cookie，程序自动识别所需字段 |

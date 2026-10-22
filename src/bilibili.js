@@ -16,12 +16,12 @@ function describe(error) {
     ? `网络请求失败（${code}）` : "请求失败，未输出原始响应以保护凭据";
 }
 
-function requestJson(url, cookie, form) {
+function requestJson(url, cookie, form, context = {}) {
   return new Promise((resolve, reject) => {
     const body = form ? new URLSearchParams(form).toString() : undefined;
     const hostname = new URL(url).hostname;
-    const referer = hostname === "manga.bilibili.com" ? "https://manga.bilibili.com/" :
-      hostname === "api.live.bilibili.com" ? "https://live.bilibili.com/" : "https://www.bilibili.com/";
+    const referer = context.referer || (hostname === "manga.bilibili.com" ? "https://manga.bilibili.com/" :
+      hostname === "api.live.bilibili.com" ? "https://live.bilibili.com/" : "https://www.bilibili.com/");
     const request = https.request(url, {
       method: body === undefined ? "GET" : "POST",
       family: 4,
@@ -29,6 +29,7 @@ function requestJson(url, cookie, form) {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
         Referer: referer,
+        Origin: new URL(referer).origin,
         Cookie: cookie,
         Accept: "application/json",
         ...(body === undefined ? {} : {
@@ -105,14 +106,19 @@ function configure(account) {
   }
   if (account.likeOnCoin !== undefined && typeof account.likeOnCoin !== "boolean") throw new BiliError("likeOnCoin 必须是布尔值");
   return { cookie: account.cookie, csrf: cookies.get("bili_jct"), coinCount, reserveCoins, coinSource,
-    videoIds: [...new Set(videoIds)], likeOnCoin: account.likeOnCoin ?? false, tasks };
+    videoIds: [...new Set(videoIds)], likeOnCoin: account.likeOnCoin ?? false, tasks,
+    missingDeviceCookies: ["buvid3", "buvid4", "b_nut", "_uuid"].filter((field) => !cookies.get(field)) };
 }
 
 class BilibiliClient {
-  constructor(config, request = requestJson) { this.config = config; this.request = request; }
+  constructor(config, request = requestJson) {
+    this.config = config;
+    this.request = request;
+    this.videoCache = new Map();
+  }
 
-  async api(url, form) {
-    const result = await this.request(url, this.config.cookie, form);
+  async api(url, form, context) {
+    const result = await this.request(url, this.config.cookie, form, context);
     if (!result || !["number", "string"].includes(typeof result.code)) throw new BiliError("接口返回格式异常");
     if (result.code !== 0) {
       const message = String(result.message || result.msg || "");
@@ -120,9 +126,15 @@ class BilibiliClient {
       const unavailable = /已下线|活动.*结束|停止服务|not found/i.test(message);
       const reason = duplicate ? "今天已经签到过" : unavailable ? "接口或活动已下线" :
         /验证|captcha|risk/i.test(message) ? "需要安全验证" :
-        result.code === -101 ? "登录凭据已失效" : result.code === -111 ? "CSRF 校验失败" : "接口拒绝请求";
+        result.code === -101 ? "登录凭据已失效" : result.code === -111 ? "CSRF 校验失败" :
+        [-401, -403].includes(result.code) ? "请求被安全策略拒绝" : "接口拒绝请求";
       const code = /^-?[0-9A-Za-z_]{1,40}$/.test(String(result.code)) ? `，代码 ${result.code}` : "";
-      throw new BiliError(`${reason}${code}`, { code: result.code, duplicate, unavailable });
+      const missing = this.config.missingDeviceCookies || [];
+      const hint = [-401, -403].includes(result.code)
+        ? missing.length ? `；请更新完整浏览器 Cookie，当前缺少设备字段 ${missing.join("、")}`
+          : "；请在浏览器确认账号验证状态，若浏览器可操作则检查运行节点的出口网络"
+        : "";
+      throw new BiliError(`${reason}${code}${hint}`, { code: result.code, duplicate, unavailable });
     }
     return result.data;
   }
@@ -141,6 +153,21 @@ class BilibiliClient {
     return [...new Set(ids.filter((id) => typeof id === "string" && /^BV[0-9A-Za-z]{10}$/.test(id)))].slice(0, 20);
   }
 
+  videoInfo(bvid) {
+    if (!this.videoCache.has(bvid)) {
+      this.videoCache.set(bvid, (async () => {
+        const data = await this.api(`https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`);
+        if (!Number.isSafeInteger(data?.aid) || data.aid <= 0 || (data.bvid && data.bvid !== bvid)) {
+          throw new BiliError("视频详情缺少有效或匹配的 aid，已停止该视频操作");
+        }
+        return { aid: data.aid, bvid, cid: data.cid };
+      })());
+    }
+    return this.videoCache.get(bvid);
+  }
+
+  videoContext(bvid) { return { referer: `https://www.bilibili.com/video/${bvid}/` }; }
+
   async coins(user, getVideos) {
     const c = this.config;
     if (!c.coinCount) return "已关闭（coinCount=0）";
@@ -154,16 +181,22 @@ class BilibiliClient {
     let donated = 0;
     for (const bvid of await getVideos()) {
       if (donated >= target) break;
+      let stage = "获取视频详情";
       try {
-        const status = await this.api(`https://api.bilibili.com/x/web-interface/archive/coins?bvid=${encodeURIComponent(bvid)}`);
+        const video = await this.videoInfo(bvid);
+        const context = this.videoContext(bvid);
+        stage = "查询视频投币状态";
+        const status = await this.api(`https://api.bilibili.com/x/web-interface/archive/coins?aid=${video.aid}&bvid=${encodeURIComponent(bvid)}`, undefined, context);
         if (!Number.isFinite(status?.multiply)) throw new BiliError("无法确认视频投币状态");
         if (status.multiply > 0) continue;
+        stage = "提交投币";
         await this.api("https://api.bilibili.com/x/web-interface/coin/add", {
-          bvid, multiply: "1", select_like: c.likeOnCoin ? "1" : "0", csrf: c.csrf,
-        });
+          aid: String(video.aid), bvid, multiply: "1", select_like: c.likeOnCoin ? "1" : "0", csrf: c.csrf,
+          cross_domain: "true", source: "web_normal",
+        }, context);
         donated++;
       } catch (error) {
-        throw new BiliError(`已成功投 ${donated} 枚；${describe(error)}；停止投币，不自动重试`);
+        throw new BiliError(`已成功投 ${donated} 枚；${stage}失败：${describe(error)}；停止投币，不自动重试`);
       }
     }
     if (donated < target) throw new BiliError(`已成功投 ${donated} 枚，目标 ${target} 枚，可用视频不足`);
@@ -182,7 +215,14 @@ class BilibiliClient {
     };
     const c = this.config;
     const tasks = [
-      ["share", "分享视频", async () => { await this.api("https://api.bilibili.com/x/web-interface/share/add", { bvid: await firstVideo(), csrf: c.csrf }); return "成功"; }],
+      ["share", "分享视频", async () => {
+        const bvid = await firstVideo();
+        const video = await this.videoInfo(bvid);
+        await this.api("https://api.bilibili.com/x/web-interface/share/add", {
+          aid: String(video.aid), bvid, csrf: c.csrf, source: "web_normal",
+        }, this.videoContext(bvid));
+        return "成功";
+      }],
       ["watch", "观看视频", async () => { await this.api("https://api.bilibili.com/x/click-interface/web/heartbeat", { bvid: await firstVideo(), played_time: "30", csrf: c.csrf }); return "心跳上报成功"; }],
       ["coin", "视频投币", () => this.coins(user, getVideos)],
       ["live", "直播签到", async () => { await this.api("https://api.live.bilibili.com/xlive/web-ucenter/v1/sign/DoSign"); return "成功"; }],
@@ -238,4 +278,4 @@ async function runBilibili(raw, { request = requestJson } = {}) {
   return { failed: failedAccounts > 0, outcomes };
 }
 
-module.exports = { runBilibili, BilibiliClient, BiliError, configure };
+module.exports = { runBilibili, BilibiliClient, BiliError, configure, requestJson };
