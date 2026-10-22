@@ -70,7 +70,36 @@ function requestJson(url, cookie, form, context = {}) {
 function parseAccounts(raw) {
   let accounts;
   try { accounts = JSON.parse(raw); }
-  catch { throw new Error("BILI_ACCOUNTS 不是有效的 JSON 数组。"); }
+  catch {
+    // A pasted browser Cookie may contain literal quotes. Repair only cookie
+    // values at supported account-field boundaries; never evaluate config text.
+    try {
+      const fields = "coinCount|reserveCoins|coinSource|videoIds|likeOnCoin|tasks";
+      const pattern = new RegExp(`"cookie"\\s*:\\s*"([\\s\\S]*?)"(?=\\s*(?:,\\s*"(?:${fields})"\\s*:|}\\s*(?:,|\\])))`, "g");
+      let repairedFields = 0;
+      const repaired = raw.replace(pattern, (match, value) => {
+        // Don't swallow a malformed adjacent field into the Cookie and silently
+        // change task or coin settings. Ambiguous input must fail closed.
+        if (/"(?:cookie|coinCount|reserveCoins|coinSource|videoIds|likeOnCoin|tasks)"\s*:/.test(value)) {
+          throw new Error("ambiguous cookie boundary");
+        }
+        let escaped = "";
+        for (let index = 0; index < value.length; index++) {
+          if (value[index] === "\\") {
+            escaped += value[index];
+            if (index + 1 < value.length) escaped += value[++index];
+          } else escaped += value[index] === '"' ? '\\"' : value[index];
+        }
+        const decoded = JSON.parse(`"${escaped}"`);
+        repairedFields++;
+        return `"cookie":${JSON.stringify(decoded)}`;
+      });
+      if (!repairedFields) throw new Error("no cookie field to repair");
+      accounts = JSON.parse(repaired);
+    } catch {
+      throw new Error("BILI_ACCOUNTS 格式错误：请检查数组、对象和字段间逗号；仅 cookie 内未转义的双引号可自动识别。");
+    }
+  }
   if (!Array.isArray(accounts) || !accounts.length) throw new Error("BILI_ACCOUNTS 必须是非空 JSON 数组。");
   return accounts;
 }
@@ -301,4 +330,4 @@ async function runBilibili(raw, { request = requestJson } = {}) {
   return { failed: failedAccounts > 0, outcomes };
 }
 
-module.exports = { runBilibili, BilibiliClient, BiliError, configure, requestJson };
+module.exports = { runBilibili, BilibiliClient, BiliError, configure, requestJson, parseAccounts };

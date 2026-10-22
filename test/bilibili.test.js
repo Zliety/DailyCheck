@@ -2,11 +2,44 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { runBilibili, configure, BilibiliClient, requestJson } = require("../src/bilibili");
+const { runBilibili, configure, BilibiliClient, requestJson, parseAccounts } = require("../src/bilibili");
 const { main } = require("../src/main");
 
 const COOKIE = "SESSDATA=test-secret; bili_jct=test-csrf; DedeUserID=123";
 const VIDEOS = ["BV1GJ411x7h7", "BV1xx411c7mD", "BV1000000000"];
+
+test("Cookie 原始双引号自动识别，多账号的投币设置保持不变", () => {
+  const raw = `[
+    {"cookie":"${COOKIE}; device="browser one"; extra="a=b;c"","coinCount":2,"reserveCoins":5,"tasks":{"coin":true}},
+    {"coinCount":0,"cookie":"${COOKIE}; device="browser two""}
+  ]`;
+  const accounts = parseAccounts(raw);
+  assert.equal(accounts.length, 2);
+  assert.equal(accounts[0].cookie, `${COOKIE}; device="browser one"; extra="a=b;c"`);
+  assert.equal(accounts[0].coinCount, 2);
+  assert.equal(accounts[0].reserveCoins, 5);
+  assert.deepEqual(accounts[0].tasks, { coin: true });
+  assert.equal(accounts[1].cookie, `${COOKIE}; device="browser two"`);
+  assert.equal(configure(accounts[1]).coinCount, 0);
+});
+
+test("标准转义 Cookie 与原始双引号 Cookie 可同时使用", () => {
+  const first = { cookie: `${COOKIE}; device="quoted"; path=one\\two`, coinCount: 3 };
+  const raw = `[${JSON.stringify(first)},{"cookie":"${COOKIE}; device="raw"","coinCount":1}]`;
+  const accounts = parseAccounts(raw);
+  assert.deepEqual(accounts[0], first);
+  assert.equal(accounts[1].cookie, `${COOKIE}; device="raw"`);
+  assert.deepEqual(parseAccounts(JSON.stringify([first])), [first]);
+});
+
+test("其他格式错误及模糊 Cookie 边界仍报错，不吞掉投币配置", () => {
+  for (const raw of [
+    `[{"cookie":"${COOKIE}; device="raw"" "coinCount":"5"}]`,
+    `[{"cookie":"${COOKIE}; device="raw"","coinCount":5,}]`,
+    `[{"cookie":"${COOKIE}; device="raw"","coinCount":eval("5")}]`,
+    `[{"cookie":"${COOKIE}; device="raw"\n"}]`,
+  ]) assert.throws(() => parseAccounts(raw), /BILI_ACCOUNTS/);
+});
 
 function backend(override) {
   const calls = [];
