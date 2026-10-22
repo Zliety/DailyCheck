@@ -67,37 +67,59 @@ function requestJson(url, cookie, form, context = {}) {
   });
 }
 
+// Remove trailing commas only outside JSON strings (Cookie contents stay intact).
+function removeTrailingCommas(text) {
+  let quoted = false;
+  let result = "";
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (quoted && char === "\\") {
+      result += char + (text[++i] || "");
+      continue;
+    }
+    if (char === '"') quoted = !quoted;
+    if (!quoted && char === "," && /^\s*[}\]]/.test(text.slice(i + 1))) continue;
+    result += char;
+  }
+  return result;
+}
+
 function parseAccounts(raw) {
+  // Secret values copied from documentation sometimes include a BOM/code fence.
+  let source = typeof raw === "string" ? raw.trim().replace(/^\uFEFF/, "") : "";
+  const fence = source.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i);
+  if (fence) source = fence[1];
   let accounts;
-  try { accounts = JSON.parse(raw); }
+  try { accounts = JSON.parse(source); }
   catch {
-    // A pasted browser Cookie may contain literal quotes. Repair only cookie
-    // values at supported account-field boundaries; never evaluate config text.
     try {
-      const fields = "coinCount|reserveCoins|coinSource|videoIds|likeOnCoin|tasks";
-      const pattern = new RegExp(`"cookie"\\s*:\\s*"([\\s\\S]*?)"(?=\\s*(?:,\\s*"(?:${fields})"\\s*:|}\\s*(?:,|\\])))`, "g");
-      let repairedFields = 0;
-      const repaired = raw.replace(pattern, (match, value) => {
-        // Don't swallow a malformed adjacent field into the Cookie and silently
-        // change task or coin settings. Ambiguous input must fail closed.
-        if (/"(?:cookie|coinCount|reserveCoins|coinSource|videoIds|likeOnCoin|tasks)"\s*:/.test(value)) {
+      // A Cookie can precede any JSON field, including a user's account label.
+      // Never consume a subsequent configuration field as part of the Cookie.
+      const pattern = /"cookie"\s*:\s*"([\s\S]*?)"(?=\s*(?:,\s*(?:"[^"\r\n]+"\s*:|[}\]])|}\s*(?:,|\])))/g;
+      const repaired = source.replace(pattern, (match, value) => {
+        if (/[\r\n]/.test(value) || /"(?:cookie|coinCount|reserveCoins|coinSource|videoIds|likeOnCoin|tasks)"\s*:/.test(value)) {
           throw new Error("ambiguous cookie boundary");
         }
         let escaped = "";
         for (let index = 0; index < value.length; index++) {
-          if (value[index] === "\\") {
-            escaped += value[index];
-            if (index + 1 < value.length) escaped += value[++index];
-          } else escaped += value[index] === '"' ? '\\"' : value[index];
+          const char = value[index];
+          if (char === "\\") {
+            const rest = value.slice(index + 1);
+            // Preserve valid JSON escapes; retain literal browser backslashes
+            // when they do not form a JSON escape (e.g. \q).
+            if (/^(?:["\\/bfnrt]|u[0-9a-fA-F]{4})/.test(rest)) {
+              escaped += char + value[++index];
+            } else escaped += "\\\\";
+          } else escaped += char === '"' ? '\\"' : char;
         }
-        const decoded = JSON.parse(`"${escaped}"`);
-        repairedFields++;
-        return `"cookie":${JSON.stringify(decoded)}`;
+        return `"cookie":${JSON.stringify(JSON.parse(`"${escaped}"`))}`;
       });
-      if (!repairedFields) throw new Error("no cookie field to repair");
-      accounts = JSON.parse(repaired);
-    } catch {
-      throw new Error("BILI_ACCOUNTS 格式错误：请检查数组、对象和字段间逗号；仅 cookie 内未转义的双引号可自动识别。");
+      accounts = JSON.parse(removeTrailingCommas(repaired));
+    } catch (error) {
+      // Only expose position numbers, never JSON.parse's source excerpt.
+      const position = /position (\d+)/.exec(error.message || "");
+      const location = position ? `（字符位置 ${Number(position[1]) + 1}）` : "";
+      throw new Error(`BILI_ACCOUNTS 格式错误${location}：请使用 [{"cookie":"完整 Cookie","coinCount":0}]；多账号用逗号分隔。Cookie 不能换行，字段名和字符串须使用英文双引号。`);
     }
   }
   if (!Array.isArray(accounts) || !accounts.length) throw new Error("BILI_ACCOUNTS 必须是非空 JSON 数组。");

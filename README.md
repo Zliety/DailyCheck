@@ -139,7 +139,7 @@ B 站任务流程参考 [dangks/bilibili_checkin](https://github.com/dangks/bili
 
 获取完整 Cookie：在浏览器登录 B 站，按 `F12` 打开开发者工具，切换到 **Network（网络）** 并刷新页面。选中发往 B 站的已登录请求，在 **Request Headers（请求标头）** 中找到 **Cookie**，复制它的整段值，粘贴到对应账号的 `cookie` 字符串中。只复制值，不要带 `Cookie:` 标头名称，也不要复制响应中的 `Set-Cookie`。
 
-完整 Cookie 通常类似 `buvid3=...; SESSDATA=...; bili_jct=...; DedeUserID=...; ...`，字段顺序不限，无需手动拆分。必须包含 `SESSDATA`、`bili_jct`、`DedeUserID`，缺少时程序会指出字段名。Cookie 字符串不要换行。程序优先按标准 JSON 解析，并兼容直接粘贴的 Cookie 中未转义的双引号，无需逐个手动处理；已经正确转义的写法也可继续使用。数组、对象、字段之间的逗号及其他配置仍须符合 JSON 格式；反斜杠仍按 JSON 规则转义。无法明确识别 Cookie 边界时会报错，不会猜测投币设置。
+完整 Cookie 通常类似 `buvid3=...; SESSDATA=...; bili_jct=...; DedeUserID=...; ...`，字段顺序不限，无需手动拆分。必须包含 `SESSDATA`、`bili_jct`、`DedeUserID`，缺少时程序会指出字段名。Cookie 字符串不要换行。程序优先按标准 JSON 解析，并兼容直接粘贴的 Cookie 中未转义的双引号，无需逐个手动处理；已经正确转义的写法也可继续使用。支持忽略对象或数组末尾多余的逗号，以及复制时带入的 Markdown 代码块。Cookie 中不构成 JSON 转义的反斜杠也可直接粘贴；已合法转义的内容继续按 JSON 规则解析。数组、对象和字段之间仍需正确分隔，字段名及字符串使用英文双引号。无法明确识别 Cookie 边界时会报错，不会猜测投币设置。
 
 Cookie 失效后，在同一个 `BILI_ACCOUNTS` Secret 中更新对应账号的完整 Cookie。
 

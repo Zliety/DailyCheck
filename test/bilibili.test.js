@@ -35,10 +35,29 @@ test("标准转义 Cookie 与原始双引号 Cookie 可同时使用", () => {
 test("其他格式错误及模糊 Cookie 边界仍报错，不吞掉投币配置", () => {
   for (const raw of [
     `[{"cookie":"${COOKIE}; device="raw"" "coinCount":"5"}]`,
-    `[{"cookie":"${COOKIE}; device="raw"","coinCount":5,}]`,
     `[{"cookie":"${COOKIE}; device="raw"","coinCount":eval("5")}]`,
     `[{"cookie":"${COOKIE}; device="raw"\n"}]`,
   ]) assert.throws(() => parseAccounts(raw), /BILI_ACCOUNTS/);
+});
+
+test("粘贴 Cookie 兼容额外字段、原始反斜杠和各层末尾逗号", () => {
+  const raw = '[{"cookie":"' + COOKIE + '; device="browser"; path=abc' + String.fromCharCode(92) + 'q","name":"账号一","coinCount":0,"tasks":{"coin":false,},},{"cookie":"' + COOKIE + '; device="two"",},]';
+  const accounts = parseAccounts(raw);
+  assert.equal(accounts.length, 2);
+  assert.equal(accounts[0].cookie, COOKIE + '; device="browser"; path=abc' + String.fromCharCode(92) + 'q');
+  assert.equal(configure(accounts[0]).coinCount, 0);
+  assert.equal(configure(accounts[0]).tasks.coin, false);
+  assert.equal(accounts[1].cookie, COOKIE + '; device="two"');
+  assert.deepEqual(parseAccounts('\uFEFF```json\n' + raw + '\n```'), accounts);
+});
+
+test("格式错误只输出位置和建议，不泄露 Secret 内容", () => {
+  const secret = "PRIVATE-COOKIE-VALUE";
+  assert.throws(() => parseAccounts('[{"cookie":"' + secret + '","coinCount":oops}]'), error => {
+    assert.match(error.message, /BILI_ACCOUNTS 格式错误/);
+    assert.ok(!error.message.includes(secret));
+    return true;
+  });
 });
 
 function backend(override) {
