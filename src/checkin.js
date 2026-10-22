@@ -96,7 +96,7 @@ async function runTianyi(rawAccounts = process.env.TY_ACCOUNTS, {
     }
   }
 
-  outcomes.unshift(`账号：${accounts.length} 个${failedAccounts ? `｜异常：${failedAccounts} 个` : ""}`);
+  outcomes.unshift(`账号：${accounts.length} 个｜无异常：${accounts.length - failedAccounts} 个｜异常：${failedAccounts} 个`);
   return { failed: failedAccounts > 0, outcomes };
 }
 

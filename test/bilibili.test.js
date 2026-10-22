@@ -165,7 +165,7 @@ test("同一 JSON 多账号独立执行，坏账号不影响后续账号", async
   const b = backend();
   const result = await runBilibili(JSON.stringify([{ cookie: COOKIE, coinCount: 6 }, { cookie: COOKIE, coinCount: 0 }]), { request: b.request });
   assert.equal(result.failed, true);
-  assert.match(result.outcomes[0], /账号：2 个｜异常：1 个/);
+  assert.match(result.outcomes[0], /账号：2 个｜无异常：1 个｜异常：1 个/);
   assert.match(result.outcomes[1], /账号 1｜❌ 执行失败/);
   assert.match(result.outcomes[1], /coinCount/);
   assert.match(result.outcomes[2], /^\n账号 2\n/);

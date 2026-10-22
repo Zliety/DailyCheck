@@ -25,7 +25,7 @@ test("天翼推送按账号分组，准确汇总成功、已签到和失败，�
     }),
   });
   assert.equal(result.failed, true);
-  assert.equal(result.outcomes[0], "账号：3 个｜异常：1 个");
+  assert.equal(result.outcomes[0], "账号：3 个｜无异常：2 个｜异常：1 个");
   assert.match(result.outcomes[1], /账号 1（138\*\*\*\*0001）\n✅ 签到：成功，获得 65 MB 空间/);
   assert.match(result.outcomes[2], /账号 2（139\*\*\*\*0002）\n✅ 签到：今天已经签到过/);
   assert.ok(!result.outcomes[2].includes("65 MB"));
@@ -45,7 +45,7 @@ test("签到响应异常显示签到阶段，后续账号照常执行，未知�
       async userSign() { return username === "invalid" ? {} : { isSign: false }; },
     }),
   });
-  assert.match(result.outcomes[0], /账号：2 个｜异常：1 个/);
+  assert.match(result.outcomes[0], /账号：2 个｜无异常：1 个｜异常：1 个/);
   assert.match(result.outcomes[1], /❌ 签到：失败/);
   assert.match(result.outcomes[2], /✅ 签到：成功/);
   assert.ok(!result.outcomes[2].includes("MB"));

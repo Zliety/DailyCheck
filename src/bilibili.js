@@ -391,7 +391,7 @@ async function runBilibili(raw, { request = requestJson } = {}) {
     if (accountInfo) console.log(`B站 第 ${index + 1} 个账号 ${accountInfo}`);
     for (const line of lines) console.log(`B站 第 ${index + 1} 个账号 ${line}`);
   }
-  outcomes.unshift(`账号：${accounts.length} 个${failedAccounts ? `｜异常：${failedAccounts} 个` : ""}`);
+  outcomes.unshift(`账号：${accounts.length} 个｜无异常：${accounts.length - failedAccounts} 个｜异常：${failedAccounts} 个`);
   return { failed: failedAccounts > 0, outcomes };
 }
 
