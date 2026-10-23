@@ -178,7 +178,7 @@ $env:BILI_ACCOUNTS = '[{"cookie":"账号1的完整Cookie","coinCount":1},{"cooki
 
 ### 账号和任务配置
 
-功能参考 [Cat-zaizai/ZaiZaiCat-Checkin](https://github.com/Cat-zaizai/ZaiZaiCat-Checkin/tree/main/script/wps)，使用 Node.js 实现，与天翼云盘、B 站共用工作流和通知渠道。
+功能参考 [Cat-zaizai/ZaiZaiCat-Checkin](https://github.com/Cat-zaizai/ZaiZaiCat-Checkin/tree/main/script/wps)，使用 Node.js 实现。
 
 在 **Repository secrets** 中新增 **`WPS_ACCOUNTS`**。所有 WPS 账号、备注和任务设置都放在这一个 JSON 数组中。六个任务开关写在各账号的 `tasks` 对象内，`true` 表示启用，`false` 表示关闭。将下方完整数组复制到 Secret 的值中，再替换每个账号的 Cookie 和备注：
 
