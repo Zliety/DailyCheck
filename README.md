@@ -93,8 +93,6 @@ $env:TY_ACCOUNTS = '[{"userName":"你的天翼账号","password":"你的天翼�
 
 ## B 站
 
-推送中的账号标题自动显示 B站昵称，例如 `账号 1（昵称）`；昵称从登录接口读取，无需新增配置。未登录或未获取到昵称时只显示账号序号。
-
 ### 账号和任务配置
 
 B 站任务流程参考 [dangks/bilibili_checkin](https://github.com/dangks/bilibili_checkin)，使用 Node.js 实现。
