@@ -1,4 +1,4 @@
-name: 每日签到（天翼云盘、B站、WPS和百度贴吧）
+name: 每日签到
 
 on:
   schedule:

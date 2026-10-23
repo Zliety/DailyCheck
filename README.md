@@ -10,7 +10,7 @@
 
 1. 打开仓库 **Settings → Secrets and variables → Actions**，按需在 **Repository secrets** 中添加下列配置，具体格式见对应的平台章节。
 2. 如需通知，在同一页面添加通知渠道的凭据。
-3. 打开仓库 **Actions** 页面，选择“每日签到（天翼云盘、B站、WPS和百度贴吧）”，点击 **Run workflow** 手动执行一次。
+3. 打开仓库 **Actions** 页面，选择“每日签到”，点击 **Run workflow** 手动执行一次。
 
 | 平台 | Repository Secret | 配置说明 |
 | --- | --- | --- |
