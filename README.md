@@ -184,7 +184,7 @@ $env:BILI_ACCOUNTS = '[{"cookie":"账号1的完整Cookie","coinCount":1},{"cooki
 
 功能参考 [Cat-zaizai/ZaiZaiCat-Checkin](https://github.com/Cat-zaizai/ZaiZaiCat-Checkin/tree/main/script/wps)，使用 Node.js 实现，与天翼云盘、B 站共用工作流和通知渠道。
 
-在 **Repository secrets** 中新增 **`WPS_ACCOUNTS`**。所有 WPS 账号、备注和任务设置都放在这一个 JSON 数组中：
+在 **Repository secrets** 中新增 **`WPS_ACCOUNTS`**。所有 WPS 账号、备注和任务设置都放在这一个 JSON 数组中。六个任务开关写在各账号的 `tasks` 对象内，`true` 表示启用，`false` 表示关闭。将下方完整数组复制到 Secret 的值中，再替换每个账号的 Cookie 和备注：
 
 ```json
 [
@@ -192,18 +192,34 @@ $env:BILI_ACCOUNTS = '[{"cookie":"账号1的完整Cookie","coinCount":1},{"cooki
     "name": "我的WPS",
     "cookie": "uid=123456; wps_sid=你的登录凭据; act_csrf_token=你的CSRF值",
     "maxLottery": 2,
-    "maxTrials": 1
+    "maxTrials": 1,
+    "tasks": {
+      "centerSign": true,
+      "centerLottery": true,
+      "freeMember": true,
+      "memberTrial": true,
+      "dailyLottery": true,
+      "reward": true
+    }
   },
   {
     "name": "备用账号",
     "cookie": "uid=234567; wps_sid=另一个账号的登录凭据; csrf=另一个账号的CSRF值",
     "maxLottery": 0,
+    "maxTrials": 0,
     "tasks": {
-      "memberTrial": false
+      "centerSign": true,
+      "centerLottery": false,
+      "freeMember": true,
+      "memberTrial": false,
+      "dailyLottery": false,
+      "reward": true
     }
   }
 ]
 ```
+
+示例中，第一个账号启用全部任务；第二个账号关闭两项抽奖和会员试用，保留任务中心签到、打卡领会员及七天奖励。每个账号的设置独立生效。单账号时只保留数组中的一个账号对象。
 
 #### 从接口请求获取完整 Cookie 和用户 ID
 
@@ -242,18 +258,7 @@ uid=655953169; wps_sid=V02S...; csrf=...
 | `userAgent` | 浏览器 UA | 可选，如需指定，可填写获取 Cookie 时使用的浏览器 UA |
 | `tasks` | 六项均为 `true` | 以下任务开关，可只填写需要关闭的项目 |
 
-任务开关：
-
-```json
-{
-  "centerSign": true,
-  "centerLottery": true,
-  "freeMember": true,
-  "memberTrial": true,
-  "dailyLottery": true,
-  "reward": true
-}
-```
+`tasks` 的六个字段已包含在上方完整示例中，可以分别修改为 `true` 或 `false`。未填写的任务开关默认启用；即使抽奖开关为 `true`，`maxLottery: 0` 也会关闭抽奖，`maxTrials: 0` 会关闭试用申请。
 
 分别对应任务中心签到、任务中心抽奖、打卡领会员、会员免费试用、天天抽奖和七天奖励领取。积分在任务结束后查询。活动入口和组件从官方页面数据读取，已签到、已申请或无剩余次数时跳过对应提交；未找到活动时会标记跳过。权益以账号资格、当期活动及接口实际结果为准。
 
