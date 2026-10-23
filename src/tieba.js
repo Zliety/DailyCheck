@@ -23,7 +23,7 @@ function signed(data) {
   const value = Object.keys(data).sort().map(key => `${key}=${data[key]}`).join("");
   return { ...data, sign: createHash("md5").update(`${value}tiebaclient!!!`).digest("hex").toUpperCase() };
 }
-function requestJson(url, config, form) {
+function requestJson(url, config, form, redirects = 0) {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
     if (target.protocol !== "https:" || !["tieba.baidu.com", "c.tieba.baidu.com", "zhidao.baidu.com"].includes(target.hostname)) {
@@ -36,6 +36,25 @@ function requestJson(url, config, form) {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
         ...(body === undefined ? {} : { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) }) },
     }, response => {
+      if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
+        response.resume();
+        // Follow read-only canonical redirects on the same HTTPS origin only.
+        // Never forward credentials to login/captcha sites or replay a POST.
+        if (body !== undefined) {
+          reject(new TiebaError(`签到或列表接口返回 HTTP ${response.statusCode} 跳转，未自动重发请求`)); return;
+        }
+        if (redirects >= 3) { reject(new TiebaError("接口跳转次数过多，已停止请求")); return; }
+        let next;
+        try {
+          if (!response.headers?.location) throw new Error("missing location");
+          next = new URL(response.headers.location, target);
+        } catch { reject(new TiebaError(`接口返回 HTTP ${response.statusCode}，但跳转地址无效`)); return; }
+        if (next.origin !== target.origin || next.username || next.password) {
+          reject(new TiebaError("接口跳转至其他站点或安全验证页面，已停止转发凭据")); return;
+        }
+        resolve(requestJson(next.href, config, undefined, redirects + 1));
+        return;
+      }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         response.resume(); reject(new TiebaError(`接口返回 HTTP ${response.statusCode}`)); return;
       }
@@ -162,7 +181,9 @@ class TiebaClient {
   }
 
   async run() {
-    const tbs = await this.login();
+    let tbs;
+    try { tbs = await this.login(); }
+    catch (error) { return { failed: true, nickname: this.text(this.config.name), lines: [`❌ 登录：失败（${describe(error)}）`] }; }
     const nickname = await this.nickname();
     let forums;
     try { forums = await this.forums(); }

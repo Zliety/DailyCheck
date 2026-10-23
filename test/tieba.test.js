@@ -223,3 +223,62 @@ test("空白或带空白的 TBS 不发起后续请求", async () => {
     assert.match(result.outcomes[1], /未获取到有效 TBS/);
   }
 });
+
+test("登录查询跟随同站 HTTPS 相对跳转，保留 Cookie 并正常解析 TBS", async t => {
+  const https = require("node:https");
+  const { EventEmitter } = require("node:events");
+  const { Readable } = require("node:stream");
+  const calls = [];
+  t.mock.method(https, "request", (url, options, callback) => {
+    const request = new EventEmitter();
+    request.end = () => {
+      calls.push({ url: url.href, options });
+      process.nextTick(() => {
+        const response = Readable.from([Buffer.from('{"is_login":1,"tbs":"redirect-tbs"}')]);
+        response.statusCode = calls.length === 1 ? 301 : 200;
+        response.headers = calls.length === 1 ? { location: "/dc/common/tbs/" } : {};
+        callback(response);
+      });
+    };
+    return request;
+  });
+  const result = await requestJson("https://tieba.baidu.com/dc/common/tbs", configure({ cookie: COOKIE }));
+  assert.equal(result.tbs, "redirect-tbs");
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].url, "https://tieba.baidu.com/dc/common/tbs/");
+  assert.equal(calls[1].options.headers.Cookie, COOKIE);
+  assert.ok(calls.every(call => call.options.method === "GET"));
+});
+
+test("重定向不转发 Cookie 到外站或 HTTP，不循环跳转，不重放提交", async t => {
+  const https = require("node:https");
+  const { EventEmitter } = require("node:events");
+  const { Readable } = require("node:stream");
+  let location;
+  let calls = 0;
+  t.mock.method(https, "request", (url, options, callback) => {
+    const request = new EventEmitter();
+    request.end = () => {
+      calls++;
+      process.nextTick(() => {
+        const response = Readable.from([]);
+        response.statusCode = 301;
+        response.headers = { location };
+        callback(response);
+      });
+    };
+    return request;
+  });
+  const config = configure({ cookie: COOKIE });
+  for (const target of ["https://passport.baidu.com/login", "https://evil.example/", "http://tieba.baidu.com/dc/common/tbs", "https://user:password@tieba.baidu.com/"]) {
+    calls = 0; location = target;
+    await assert.rejects(requestJson("https://tieba.baidu.com/dc/common/tbs", config), /停止转发凭据/);
+    assert.equal(calls, 1);
+  }
+  calls = 0; location = "/dc/common/tbs";
+  await assert.rejects(requestJson("https://tieba.baidu.com/dc/common/tbs", config), /跳转次数过多/);
+  assert.equal(calls, 4);
+  calls = 0; location = "/c/c/forum/sign/";
+  await assert.rejects(requestJson("https://c.tieba.baidu.com/c/c/forum/sign", config, { BDUSS: config.bduss }), /未自动重发/);
+  assert.equal(calls, 1);
+});
