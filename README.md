@@ -205,7 +205,32 @@ $env:BILI_ACCOUNTS = '[{"cookie":"账号1的完整Cookie","coinCount":1},{"cooki
 ]
 ```
 
-在浏览器登录 [WPS 用户中心](https://personal-act.wps.cn/center_page/user_index)，打开任务中心及“天天领福利”页面。按 `F12`，在 **Network（网络）** 中选中对应页面请求，从 **Request Headers（请求标头）** 复制完整 Cookie 到 `cookie`。保留 `wps_sid`、`uid` 和 `act_csrf_token` 或 `csrf` 等原有字段，只复制 Cookie 的值。
+#### 从接口请求获取完整 Cookie 和用户 ID
+
+1. 打开浏览器，访问 [WPS 签到页面](https://personal-act.wps.cn/)。
+2. 登录你的 WPS 账号。
+3. 按 `F12` 打开开发者工具。
+4. 切换到 **Network（网络）** 标签。
+5. 在页面上执行一次签到操作。
+6. 在网络请求列表中找到签到相关的接口请求，例如 `sign_in`、`encrypt/key`。
+7. 点击该请求，查看 **Request Headers（请求头）**。
+8. 复制 `Cookie` 字段的完整值，填入对应账号的 `cookie`。
+
+**提取用户 ID：**
+
+在复制的 Cookie 中找到 `uid=数字` 部分，例如：
+
+```text
+uid=655953169; wps_sid=V02S...; csrf=...
+```
+
+这里的用户 ID 是 `655953169`。程序会自动读取 `uid`，无需单独填写；需要手动指定时，使用本项目的 `userId` 字段。
+
+**为什么从接口请求获取 Cookie？**
+
+- 接口请求中的 Cookie 包含签到实际使用的认证信息，便于同时获取 `uid`、`wps_sid` 等字段。
+- 从刚完成签到的请求中复制，可以减少使用过期或不完整 Cookie 的情况。
+- 请复制请求头中的完整 Cookie 值，不要从地址栏复制，也不要带上 `Cookie:` 标头名称。
 
 | JSON 字段 | 默认值 | 说明 |
 | --- | --- | --- |
