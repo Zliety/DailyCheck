@@ -6,7 +6,7 @@
 
 ### GitHub Actions 运行
 
-工作流默认每天北京时间 **06:37**（UTC 前一天 22:37）运行。GitHub 的定时任务可能延迟启动，也可以在 Actions 页面手动运行。
+工作流默认每天北京时间 **15:37**（UTC 07:37）运行。GitHub 的定时任务可能延迟启动，也可以在 Actions 页面手动运行。
 
 1. 打开仓库 **Settings → Secrets and variables → Actions**，按需在 **Repository secrets** 中添加下列配置，具体格式见对应的平台章节。
 2. 如需通知，在同一页面添加通知渠道的凭据。
