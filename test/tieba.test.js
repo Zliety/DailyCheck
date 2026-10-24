@@ -282,3 +282,83 @@ test("重定向不转发 Cookie 到外站或 HTTP，不循环跳转，不重放�
   await assert.rejects(requestJson("https://c.tieba.baidu.com/c/c/forum/sign", config, { BDUSS: config.bduss }), /未自动重发/);
   assert.equal(calls, 1);
 });
+
+test("网页查询跨站跳转后使用固定客户端接口，识别 TBS 和昵称并继续签到", async () => {
+  const { TiebaError } = require("../src/tieba");
+  const b = backend(call => {
+    if (call.path === "/dc/common/tbs") throw new TiebaError("接口跳转至 http://tieba.baidu.com，已停止转发凭据", { redirect: true });
+    if (call.path === "/c/s/login") {
+      assert.equal(call.url, "https://tiebac.baidu.com/c/s/login");
+      assert.equal(call.form.bdusstoken, "private-bduss==");
+      assert.equal(call.form._client_version, "22.12.1.0");
+      assert.match(call.form.sign, /^[A-F0-9]{32}$/);
+      assert.equal(call.config.cookie, "BDUSS=private-bduss==");
+      return { error_code: "0", user: { id: "123", name: "客户端昵称" }, anti: { tbs: "client-private-tbs" } };
+    }
+    if (call.path.endsWith("/sign")) assert.equal(call.form.tbs, "client-private-tbs");
+  });
+  const result = await runTieba(JSON.stringify([{ cookie: COOKIE }]), b);
+  assert.equal(result.failed, false);
+  assert.match(result.outcomes[1], /账号 1（客户端昵称）/);
+  assert.equal(b.calls.filter(call => call.path.endsWith("/sign")).length, 3);
+  assert.ok(!b.calls.some(call => call.path === "/api/loginInfo"));
+  assert.ok(!result.outcomes[1].includes("private-bduss"));
+  assert.ok(!result.outcomes[1].includes("client-private-tbs"));
+});
+
+test("明确安全验证不切换接口；客户端拒绝登录或缺少 TBS 时不签到", async () => {
+  const { TiebaError } = require("../src/tieba");
+  const challenge = backend(() => { throw new TiebaError("请在浏览器完成安全验证", { redirect: true, verification: true }); });
+  assert.equal((await runTieba(JSON.stringify([{ cookie: COOKIE }]), challenge)).failed, true);
+  assert.equal(challenge.calls.length, 1);
+  for (const response of [
+    { error_code: "4", error_msg: "请重新登录" },
+    { error_code: "0", user: { id: "123", name: "昵称" }, anti: {} },
+    { error_code: "0", user: { id: "0" }, anti: { tbs: "token" } },
+  ]) {
+    const b = backend(call => {
+      if (call.path === "/dc/common/tbs") throw new TiebaError("网页发生跨站跳转", { redirect: true });
+      if (call.path === "/c/s/login") return response;
+    });
+    const result = await runTieba(JSON.stringify([{ cookie: COOKIE }]), b);
+    assert.equal(result.failed, true);
+    assert.ok(!b.calls.some(call => call.path.endsWith("/sign") || call.path.endsWith("/like")));
+  }
+});
+
+test("原生请求识别跳转类型，诊断只包含域名，客户端登录只允许固定路径", async t => {
+  const https = require("node:https");
+  const { EventEmitter } = require("node:events");
+  const { Readable } = require("node:stream");
+  let location = "http://tieba.baidu.com/dc/common/tbs?private-token=value";
+  let status = 301;
+  let calls = 0;
+  t.mock.method(https, "request", (url, options, callback) => {
+    const request = new EventEmitter();
+    request.end = () => {
+      calls++;
+      process.nextTick(() => {
+        const response = Readable.from([Buffer.from('{"error_code":"0"}')]);
+        response.statusCode = status;
+        response.headers = { location };
+        callback(response);
+      });
+    };
+    return request;
+  });
+  const config = configure({ cookie: COOKIE });
+  await assert.rejects(requestJson("https://tieba.baidu.com/dc/common/tbs", config), error => {
+    assert.equal(error.redirect, true);
+    assert.equal(error.verification, false);
+    assert.match(error.message, /http:\/\/tieba.baidu.com/);
+    assert.ok(!error.message.includes("private-token"));
+    return true;
+  });
+  location = "https://wappass.baidu.com/verify?private-token=value";
+  await assert.rejects(requestJson("https://tieba.baidu.com/dc/common/tbs", config), error => error.verification === true);
+  status = 200;
+  await requestJson("https://tiebac.baidu.com/c/s/login", config, { bdusstoken: config.bduss });
+  const before = calls;
+  await assert.rejects(requestJson("https://tiebac.baidu.com/other", config), /非百度接口/);
+  assert.equal(calls, before);
+});

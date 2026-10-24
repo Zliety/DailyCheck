@@ -9,6 +9,7 @@ const { waitRandom } = require("./interval");
 
 const BASE = "https://tieba.baidu.com";
 const CLIENT = "https://c.tieba.baidu.com";
+const LOGIN = "https://tiebac.baidu.com/c/s/login";
 const CLIENT_FIELDS = { _client_type: "2", _client_version: "9.7.8.0", _phone_imei: "000000000000000", model: "MI+5", net_type: "1" };
 
 class TiebaError extends Error {
@@ -26,7 +27,8 @@ function signed(data) {
 function requestJson(url, config, form, redirects = 0) {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
-    if (target.protocol !== "https:" || !["tieba.baidu.com", "c.tieba.baidu.com", "zhidao.baidu.com"].includes(target.hostname)) {
+    const clientLogin = target.origin === "https://tiebac.baidu.com" && target.pathname === "/c/s/login";
+    if (target.protocol !== "https:" || (!clientLogin && !["tieba.baidu.com", "c.tieba.baidu.com", "zhidao.baidu.com"].includes(target.hostname))) {
       reject(new TiebaError("拒绝访问非百度接口")); return;
     }
     const body = form === undefined ? undefined : new URLSearchParams(form).toString();
@@ -50,7 +52,13 @@ function requestJson(url, config, form, redirects = 0) {
           next = new URL(response.headers.location, target);
         } catch { reject(new TiebaError(`接口返回 HTTP ${response.statusCode}，但跳转地址无效`)); return; }
         if (next.origin !== target.origin || next.username || next.password) {
-          reject(new TiebaError("接口跳转至其他站点或安全验证页面，已停止转发凭据")); return;
+          const verification = ["passport.baidu.com", "wappass.baidu.com"].includes(next.hostname);
+          // Log only an approved domain and scheme, never the redirect path or
+          // query string: those can contain login tokens and account details.
+          const destination = next.hostname === "baidu.com" || next.hostname.endsWith(".baidu.com")
+            ? `${next.protocol}//${next.hostname}` : "其他站点";
+          reject(new TiebaError(`接口跳转至 ${destination}，已停止转发凭据${verification ? "；请在浏览器完成登录或安全验证" : ""}`,
+            { redirect: true, verification })); return;
         }
         resolve(requestJson(next.href, config, undefined, redirects + 1));
         return;
@@ -116,15 +124,43 @@ class TiebaClient {
     }
   }
 
+  rememberTbs(tbs) {
+    if (typeof tbs !== "string" || !tbs.trim() || /\s/.test(tbs)) throw new TiebaError("未获取到有效 TBS，已停止签到");
+    this.config.secrets.push(tbs);
+    return tbs;
+  }
+
+  async loginClient() {
+    // aiotieba's client login protocol returns anti.tbs and user.name.
+    // This is a fixed API call, never a redirect destination supplied by a server.
+    const result = await this.request(LOGIN, { ...this.config, cookie: `BDUSS=${this.config.bduss}` },
+      signed({ _client_version: "22.12.1.0", bdusstoken: this.config.bduss }));
+    this.checkError(result);
+    if (String(result?.error_code) !== "0" || !/^\d+$/.test(String(result?.user?.id ?? "")) || Number(result.user.id) <= 0) {
+      throw new TiebaError("客户端登录未成功，请检查 BDUSS 有效性和账号安全验证状态", { auth: true });
+    }
+    const tbs = this.rememberTbs(result.anti?.tbs);
+    this.clientNickname = this.text(result.user.name_show) || this.text(result.user.name);
+    return tbs;
+  }
+
   async login() {
-    const result = await this.request(`${BASE}/dc/common/tbs`, this.config);
+    let result;
+    try { result = await this.request(`${BASE}/dc/common/tbs`, this.config); }
+    catch (error) {
+      if (!error.redirect || error.verification) throw error;
+      console.log("百度贴吧：网页登录查询发生跳转，改用客户端登录接口。");
+      try { return await this.loginClient(); }
+      catch (clientError) {
+        throw new TiebaError(`网页查询：${describe(error)}；客户端登录：${describe(clientError)}`, { auth: clientError.auth });
+      }
+    }
     if (![1, "1"].includes(result?.is_login)) throw new TiebaError("登录未成功，Cookie 或 BDUSS 可能已失效", { auth: true });
-    if (typeof result.tbs !== "string" || !result.tbs.trim() || /\s/.test(result.tbs)) throw new TiebaError("未获取到有效 TBS，已停止签到");
-    this.config.secrets.push(result.tbs);
-    return result.tbs;
+    return this.rememberTbs(result.tbs);
   }
 
   async nickname() {
+    if (this.clientNickname) return this.clientNickname;
     try {
       const result = await this.request("https://zhidao.baidu.com/api/loginInfo", this.config);
       return this.text(result?.userName) || this.text(this.config.name);
