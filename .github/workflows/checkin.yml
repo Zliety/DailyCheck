@@ -2,7 +2,7 @@ name: 每日签到
 
 on:
   schedule:
-    - cron: "37 7 * * *"
+    - cron: "37 6 * * *"
   workflow_dispatch:
 
 permissions:
