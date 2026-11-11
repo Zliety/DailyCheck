@@ -222,6 +222,45 @@ test("CSRF 缺失不发起活动提交，仍保留任务中心签到和积分结
   assert.match(result.outcomes[1], /Cookie 缺少 act_csrf_token 或 csrf/);
 });
 
+test("打卡旧周期在顶层被拒绝时重新开始，兼容不同错误字段", async () => {
+  for (const failure of [
+    { msg: "not in series records" },
+    { message: "date not in series" },
+    { ext_msg: "not in series records" },
+    { error: "not in series records" },
+    { reason: "not in series records" },
+    { data: { fragment_collect: { reason: "not in series records" } } },
+  ]) {
+    let signs = 0;
+    const b = backend(call => {
+      if (call.body?.component_action === "fragment_collect.sign_in" && ++signs === 1) {
+        return { result: "error", ...failure };
+      }
+    });
+    const result = await runWps(JSON.stringify([{ cookie: COOKIE }]), b);
+    assert.equal(result.failed, false);
+    assert.match(result.outcomes[1], /打卡领会员：成功（旧周期已失效/);
+    const requests = b.calls.filter(call => call.body?.component_action === "fragment_collect.sign_in");
+    assert.equal(requests.length, 2);
+    assert.deepEqual(requests[1].body.fragment_collect, { sign_date: "", series_id: "series", is_new_sign_series: true });
+    assert.match(result.outcomes[1], /✅ 天天抽奖：/);
+  }
+});
+
+test("打卡原因不明或重新开始仍被拒绝时不继续重试且不泄露响应", async () => {
+  for (const reason of ["not in series records", COOKIE]) {
+    const b = backend(call => call.body?.component_action === "fragment_collect.sign_in"
+      ? { result: "error", msg: reason } : undefined);
+    const result = await runWps(JSON.stringify([{ cookie: COOKIE }]), b);
+    assert.equal(result.failed, true);
+    assert.equal(b.calls.filter(call => call.body?.component_action === "fragment_collect.sign_in").length,
+      reason === COOKIE ? 1 : 2);
+    assert.match(result.outcomes[1], /❌ 打卡领会员：失败/);
+    assert.match(result.outcomes[1], /✅ 天天抽奖：/);
+    assert.ok(!result.outcomes.join("\n").includes("private-session"));
+  }
+});
+
 test("WPS 和现有两个平台合并推送一次，失败独立且支持只配置 WPS", async () => {
   let sent = 0;
   const result = await main({ wait: async () => {}, env: { TY_ACCOUNTS: "ty", BILI_ACCOUNTS: "bili", WPS_ACCOUNTS: "wps" },

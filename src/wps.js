@@ -131,13 +131,16 @@ class WpsClient {
     this.config = config; this.request = request; this.wait = wait;
   }
 
-  async api(url, body, headers) {
+  async api(url, body, headers, { fragmentSign = false } = {}) {
     const result = await this.request(url, this.config, body, headers);
     if (result?.result === "ok") return result.data;
-    const text = [result?.msg, result?.message, result?.ext_msg, result?.error].filter(value => typeof value === "string").join(" ");
+    const text = [result?.msg, result?.message, result?.ext_msg, result?.error,
+      ...(fragmentSign ? [result?.reason, result?.data?.fragment_collect?.reason, result?.data?.fragment_collect?.send_msg] : []),
+    ].filter(value => typeof value === "string").join(" ");
     if (/ErrNotLogin|userNotLogin|未登录|请.*登录|Token.*过期/i.test(text)) throw new WpsError("登录已失效，请更新完整 Cookie", { auth: true });
     if (/^has sign$|已经签到|已签到|重复签到/i.test(text.trim())) throw new WpsError("今天已经签到过", { duplicate: true });
     if (/活动.*(?:结束|下线)|停止服务/.test(text)) throw new WpsError("活动已结束或下线", { unavailable: true });
+    if (fragmentSign && /not in series(?: records)?/i.test(text)) throw new WpsError("原签到周期已失效", { brokenSeries: true });
     const code = /^-?\d{1,12}$/.test(String(result?.code ?? "")) ? `（代码 ${result.code}）` : "";
     throw new WpsError(`接口拒绝请求${code}`);
   }
@@ -180,13 +183,14 @@ class WpsClient {
       component_uniq_number: { activity_number: portal.activity_number, page_number: portal.page_number,
         component_number: item.number, component_node_id: item.component_node_id, filter_params: emptyFilter ? {} : portal.filter_params },
       component_type: type, component_action: action, [action.split(".")[0]]: data,
-    }, { Referer: portalLink(portal), "x-act-csrf-token": this.config.csrf });
+    }, { Referer: portalLink(portal), "x-act-csrf-token": this.config.csrf },
+    { fragmentSign: action === "fragment_collect.sign_in" });
     const payload = result?.[action.split(".")[0]] ||
       (action === "fragment_collect.receive" ? result?.lottery_v2 : undefined);
     if (payload?.success !== true) {
       const reason = [payload?.reason, payload?.send_msg].filter(value => typeof value === "string").join(" ");
       if (/未登录|userNotLogin|Token.*过期/i.test(reason)) throw new WpsError("登录已失效，请更新完整 Cookie", { auth: true });
-      if (/not in series records/i.test(reason)) throw new WpsError("原签到周期已失效", { brokenSeries: true });
+      if (action === "fragment_collect.sign_in" && /not in series(?: records)?/i.test(reason)) throw new WpsError("原签到周期已失效", { brokenSeries: true });
       if (/已经签到|已签到|重复签到|已领取|已申请/.test(reason)) throw new WpsError("已经完成，无需重复提交", { duplicate: true });
       throw new WpsError("活动提交未成功；不自动重试");
     }
