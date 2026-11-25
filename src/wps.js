@@ -174,17 +174,23 @@ class WpsClient {
     return text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ").slice(0, 120);
   }
 
-  async action(portal, item, type, action, data, { emptyFilter = false } = {}) {
+  async action(portal, item, type, action, data) {
     if (!this.config.csrf) throw new WpsError("Cookie 缺少 act_csrf_token 或 csrf");
     if (typeof item?.number !== "string" || !item.number || typeof item.component_node_id !== "string" || !item.component_node_id) {
       throw new WpsError("活动组件信息不完整，已停止提交");
     }
+    const trial = action === "divide_prize.sign_up";
+    const referer = portalLink(portal);
+    const headers = { Referer: referer, "x-act-csrf-token": this.config.csrf };
+    if (trial) {
+      headers.Referer = referer.split("?")[0];
+      Object.assign(headers, { "sec-fetch-site": "same-origin", "sec-fetch-mode": "cors", "sec-fetch-dest": "empty" });
+    }
     const result = await this.api(ACTION, {
       component_uniq_number: { activity_number: portal.activity_number, page_number: portal.page_number,
-        component_number: item.number, component_node_id: item.component_node_id, filter_params: emptyFilter ? {} : portal.filter_params },
+        component_number: item.number, component_node_id: item.component_node_id, filter_params: trial ? {} : portal.filter_params },
       component_type: type, component_action: action, [action.split(".")[0]]: data,
-    }, { Referer: portalLink(portal), "x-act-csrf-token": this.config.csrf },
-    { fragmentSign: action === "fragment_collect.sign_in" });
+    }, headers, { fragmentSign: action === "fragment_collect.sign_in" });
     const payload = result?.[action.split(".")[0]] ||
       (action === "fragment_collect.receive" ? result?.lottery_v2 : undefined);
     if (payload?.success !== true) {
@@ -192,6 +198,12 @@ class WpsClient {
       if (/未登录|userNotLogin|Token.*过期/i.test(reason)) throw new WpsError("登录已失效，请更新完整 Cookie", { auth: true });
       if (action === "fragment_collect.sign_in" && /not in series(?: records)?/i.test(reason)) throw new WpsError("原签到周期已失效", { brokenSeries: true });
       if (/已经签到|已签到|重复签到|已领取|已申请/.test(reason)) throw new WpsError("已经完成，无需重复提交", { duplicate: true });
+      if (trial) {
+        if (/库存不足|库存已空|名额已满|名额已抢完|次数已用完|达到申请上限/.test(reason)) {
+          throw new WpsError("试用名额或申请次数已用完", { unavailable: true });
+        }
+        throw new WpsError(payload?.success === false ? "WPS 拒绝试用申请" : "WPS 未确认试用申请结果");
+      }
       throw new WpsError("活动提交未成功；不自动重试");
     }
     return payload;
@@ -271,8 +283,14 @@ class WpsClient {
       if (results.length) await this.wait(1000);
       if (!detail.cycle_id || !detail.session_id) throw new WpsError("试用场次信息不完整，已停止提交");
       try {
-        await this.action(portal, item, 32, "divide_prize.sign_up", { cycle_id: detail.cycle_id, session_id: detail.session_id }, { emptyFilter: true });
-      } catch (error) { throw new WpsError(`已申请成功 ${results.length} 项；${describe(error)}；停止申请，不自动重试`, { auth: error.auth }); }
+        await this.action(portal, item, 32, "divide_prize.sign_up", { cycle_id: detail.cycle_id, session_id: detail.session_id });
+      } catch (error) {
+        const progress = `已申请成功 ${results.length} 项`;
+        if (error.duplicate || error.unavailable) {
+          return `跳过（${progress}；${describe(error)}）`;
+        }
+        throw new WpsError(`${progress}；${describe(error)}；不自动重试`, { auth: error.auth });
+      }
       results.push(this.safeText(detail.title) || "会员试用");
     }
     return `申请成功 ${results.length} 项：${results.join("、")}`;

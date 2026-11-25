@@ -97,7 +97,12 @@ test("WPS 六项任务、积分查询与请求上下文，抽奖和申请严格�
     assert.ok(call.body.component_uniq_number.component_node_id);
     assert.equal(call.body.component_type, { fragment_collect: 42, divide_prize: 32, lottery_v2: 45 }[call.body.component_action.split(".")[0]]);
   }
-  assert.deepEqual(mutations.find(call => call.body.divide_prize).body.component_uniq_number.filter_params, {});
+  const trial = mutations.find(call => call.body.divide_prize);
+  assert.deepEqual(trial.body.component_uniq_number.filter_params, {});
+  assert.equal(trial.headers.Referer, "https://personal-act.wps.cn/rubik2/portal/HDtest/YMtest");
+  assert.equal(trial.headers["sec-fetch-site"], "same-origin");
+  assert.equal(trial.headers["sec-fetch-mode"], "cors");
+  assert.equal(trial.headers["sec-fetch-dest"], "empty");
   const market = b.calls.filter(call => call.path.endsWith("/market/activity"));
   assert.equal(market[0].body.channel_code, "AUTOPCHYZXYYHD3737");
   assert.ok(!result.outcomes.join("\n").includes("private-session"));
@@ -147,6 +152,22 @@ test("签到或试用超时均只提交一次，其他任务照常执行", async
     assert.equal(result.failed, true);
     assert.equal(b.calls.filter(call => type === "sign_in" ? call.path.endsWith("/sign_in") : call.body?.component_action === type).length, 1);
     assert.match(result.outcomes[1], /✅ 天天抽奖：/);
+  }
+});
+
+test("试用明确不可申请时跳过，未确认结果时报告失败，均只提交一次", async () => {
+  for (const [payload, failed, message] of [
+    [{ success: false, reason: "名额已满" }, false, /⏭️ 会员免费试用：跳过.*名额或申请次数已用完/],
+    [{ success: false, reason: "已申请" }, false, /⏭️ 会员免费试用：跳过.*已经完成/],
+    [undefined, true, /❌ 会员免费试用：失败.*未确认试用申请结果.*不自动重试/],
+  ]) {
+    const b = backend(call => call.body?.component_action === "divide_prize.sign_up"
+      ? ok({ divide_prize: payload }) : undefined);
+    const result = await runWps(JSON.stringify([{ cookie: COOKIE }]), b);
+    assert.equal(result.failed, failed);
+    assert.match(result.outcomes[1], message);
+    assert.match(result.outcomes[1], /✅ 天天抽奖：/);
+    assert.equal(b.calls.filter(call => call.body?.component_action === "divide_prize.sign_up").length, 1);
   }
 });
 
